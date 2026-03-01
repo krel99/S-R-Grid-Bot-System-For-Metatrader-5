@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Zone Levels</title>
+        <link
+            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            :root {
+                --bg: #0a0b0d;
+                --surface: #111318;
+                --border: #1e2128;
+                --border2: #2a2e38;
+                --text: #c8cdd8;
+                --muted: #636d83;
+                --buy: #00c076;
+                --buy-dim: #00c07622;
+                --sell: #e0404a;
+                --sell-dim: #e0404a22;
+                --strong: #f0b429;
+                --mono: "IBM Plex Mono", monospace;
+                --sans: "IBM Plex Sans", sans-serif;
+            }
+
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 13px;
+                min-height: 100vh;
+                padding: 32px 24px;
+            }
+
+            header {
+                display: flex;
+                align-items: baseline;
+                gap: 16px;
+                margin-bottom: 36px;
+                padding-bottom: 16px;
+                border-bottom: 1px solid var(--border);
+            }
+
+            header h1 {
+                font-size: 15px;
+                font-weight: 600;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: #fff;
+            }
+
+            header .clock {
+                font-size: 12px;
+                color: var(--muted);
+                margin-left: auto;
+            }
+
+            /* Symbol block */
+            .symbol-block {
+                margin-bottom: 28px;
+                border: 1px solid var(--border);
+                background: var(--surface);
+            }
+
+            .symbol-header {
+                padding: 10px 16px;
+                border-bottom: 1px solid var(--border);
+                display: flex;
+                align-items: center;
+                background: #0d0f13;
+            }
+
+            .symbol-name {
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 0.14em;
+                color: #fff;
+            }
+
+            /* Rows */
+            .row {
+                display: grid;
+                grid-template-columns: 68px 1fr;
+                border-bottom: 1px solid var(--border);
+                min-height: 44px;
+            }
+
+            .row:last-child {
+                border-bottom: none;
+            }
+
+            .row-label {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.1em;
+                border-right: 1px solid var(--border);
+            }
+
+            .row.buy .row-label {
+                color: var(--buy);
+                background: var(--buy-dim);
+            }
+            .row.sell .row-label {
+                color: var(--sell);
+                background: var(--sell-dim);
+            }
+
+            .row-inputs {
+                display: flex;
+                align-items: center;
+                gap: 0;
+                padding: 0 12px;
+                gap: 12px;
+            }
+
+            .sep {
+                color: var(--muted);
+                font-size: 11px;
+                flex-shrink: 0;
+            }
+
+            input[type="number"] {
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid var(--border2);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 13px;
+                padding: 4px 0;
+                width: 90px;
+                outline: none;
+                transition: border-color 0.15s;
+                -moz-appearance: textfield;
+            }
+
+            input[type="number"]::-webkit-outer-spin-button,
+            input[type="number"]::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+            }
+
+            input[type="number"]:focus {
+                border-bottom-color: var(--text);
+            }
+
+            input[type="number"]::placeholder {
+                color: #7f848e;
+                font-size: 12px;
+            }
+
+            /* Strong checkbox */
+            .strong-wrap {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                margin-left: auto;
+                flex-shrink: 0;
+                cursor: pointer;
+                user-select: none;
+            }
+
+            .strong-wrap input[type="checkbox"] {
+                display: none;
+            }
+
+            .strong-box {
+                width: 14px;
+                height: 14px;
+                border: 1px solid var(--border2);
+                background: transparent;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.15s;
+                flex-shrink: 0;
+            }
+
+            .strong-wrap input:checked + .strong-box {
+                background: var(--strong);
+                border-color: var(--strong);
+            }
+
+            .strong-wrap input:checked + .strong-box::after {
+                content: "";
+                display: block;
+                width: 6px;
+                height: 6px;
+                background: #000;
+                clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+            }
+
+            .strong-label {
+                font-size: 11px;
+                color: var(--muted);
+                letter-spacing: 0.06em;
+                transition: color 0.15s;
+            }
+
+            .strong-wrap:has(input:checked) .strong-label {
+                color: var(--strong);
+            }
+
+            /* Submit button */
+            .submit-btn {
+                width: 100%;
+                margin-top: 8px;
+                padding: 9px;
+                background: none;
+                border: 1px solid var(--border2);
+                color: var(--muted);
+                font-family: var(--mono);
+                font-size: 11px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                cursor: pointer;
+                transition: all 0.15s;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+            }
+
+            .submit-btn:hover {
+                border-color: #fff;
+                color: #fff;
+            }
+
+            .submit-btn.loading {
+                opacity: 0.5;
+                pointer-events: none;
+            }
+
+            /* Active zones panel */
+            .zones-panel {
+                margin-top: 40px;
+                border-top: 1px solid var(--border);
+                padding-top: 24px;
+            }
+
+            .zones-panel h2 {
+                font-size: 11px;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 16px;
+            }
+
+            .zones-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .zone-item {
+                display: grid;
+                grid-template-columns: 80px 44px 60px 70px 1fr;
+                align-items: center;
+                gap: 12px;
+                padding: 8px 14px;
+                border: 1px solid var(--border);
+                font-size: 12px;
+                background: var(--surface);
+                animation: fadeIn 0.2s ease;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-4px);
+                }
+                to {
+                    opacity: 1;
+                    transform: none;
+                }
+            }
+
+            .zone-item .z-symbol {
+                color: #fff;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+            }
+            .zone-item .z-dir.buy {
+                color: var(--buy);
+            }
+            .zone-item .z-dir.sell {
+                color: var(--sell);
+            }
+            .zone-item .z-strength {
+                color: var(--strong);
+                font-size: 11px;
+            }
+            .zone-item .z-strength.regular {
+                color: var(--muted);
+            }
+            .zone-item .z-price {
+                color: var(--text);
+                font-variant-numeric: tabular-nums;
+            }
+            .zone-item .z-time {
+                color: var(--muted);
+                font-size: 11px;
+                text-align: right;
+            }
+
+            .empty-state {
+                color: var(--muted);
+                font-size: 12px;
+                padding: 16px 0;
+                text-align: center;
+                letter-spacing: 0.06em;
+            }
+
+            /* Toast */
+            .toast {
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                padding: 10px 18px;
+                font-size: 12px;
+                letter-spacing: 0.06em;
+                border: 1px solid;
+                opacity: 0;
+                transform: translateY(8px);
+                transition: all 0.2s;
+                pointer-events: none;
+            }
+
+            .toast.show {
+                opacity: 1;
+                transform: none;
+            }
+            .toast.ok {
+                background: #001a0e;
+                border-color: var(--buy);
+                color: var(--buy);
+            }
+            .toast.err {
+                background: #1a0005;
+                border-color: var(--sell);
+                color: var(--sell);
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Zone Levels</h1>
+            <span class="clock" id="clock">--:--:--</span>
+        </header>
+
+        <div id="symbolBlocks"></div>
+
+        <div class="zones-panel">
+            <h2>Active Zones</h2>
+            <div class="zones-list" id="zonesList"></div>
+        </div>
+
+        <div class="toast" id="toast"></div>
+
+        <script>
+            const SYMBOLS = ["USDJPY", "EURUSD", "GBPUSD"];
+            const DIRECTIONS = ["buy", "sell"];
+            const ROWS = 6;
+
+            // ── Build UI ──────────────────────────────────────────────────────────────────
+
+            function buildUI() {
+                const container = document.getElementById("symbolBlocks");
+
+                SYMBOLS.forEach((symbol) => {
+                    const block = document.createElement("div");
+                    block.className = "symbol-block";
+
+                    const rows = DIRECTIONS.map((dir) =>
+                        Array.from(
+                            { length: ROWS },
+                            (_, i) => `
+        <div class="row ${dir}">
+          <div class="row-label">${dir.toUpperCase()}</div>
+          <div class="row-inputs">
+            <input type="number" step="any" placeholder="level"
+              id="${symbol}_${dir}_${i}_price" />
+            <span class="sep">|</span>
+            <input type="number" step="any" placeholder="zone from"
+              id="${symbol}_${dir}_${i}_from" />
+            <span class="sep">:</span>
+            <input type="number" step="any" placeholder="zone to"
+              id="${symbol}_${dir}_${i}_to" />
+            <label class="strong-wrap">
+              <input type="checkbox" id="${symbol}_${dir}_${i}_strong" />
+              <span class="strong-box"></span>
+              <span class="strong-label">STRONG</span>
+            </label>
+          </div>
+        </div>
+      `,
+                        ).join(""),
+                    ).join("");
+
+                    block.innerHTML = `
+      <div class="symbol-header">
+        <span class="symbol-name">${symbol}</span>
+      </div>
+      ${rows}
+      <button class="submit-btn" data-symbol="${symbol}">
+        + SUBMIT ${symbol}
+      </button>
+    `;
+                    container.appendChild(block);
+                });
+
+                document.querySelectorAll(".submit-btn").forEach((btn) => {
+                    btn.addEventListener("click", () => submitSymbol(btn.dataset.symbol, btn));
+                });
+            }
+
+            // ── Submit ────────────────────────────────────────────────────────────────────
+
+            async function submitSymbol(symbol, btn) {
+                const toSubmit = [];
+
+                for (const dir of DIRECTIONS) {
+                    for (let i = 0; i < ROWS; i++) {
+                        const price = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_price`).value);
+                        const from = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_from`).value);
+                        const to = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_to`).value);
+                        const strong = document.getElementById(`${symbol}_${dir}_${i}_strong`).checked;
+
+                        const hasPoint = !isNaN(price);
+                        const hasZone = !isNaN(from) && !isNaN(to);
+
+                        if (!hasPoint && !hasZone) continue;
+
+                        toSubmit.push({
+                            symbol,
+                            direction: dir,
+                            strength: strong ? "strong" : "regular",
+                            kind: hasZone ? "zone" : "point",
+                            ...(hasZone ? { from, to } : { price }),
+                        });
+                    }
+                }
+
+                if (toSubmit.length === 0) {
+                    showToast("Nothing to submit for " + symbol, "err");
+                    return;
+                }
+
+                btn.classList.add("loading");
+
+                try {
+                    for (const zone of toSubmit) {
+                        const res = await fetch("/zones", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(zone),
+                        });
+                        if (!res.ok) throw new Error(await res.text());
+                    }
+
+                    // Clear inputs
+                    for (const dir of DIRECTIONS) {
+                        for (let i = 0; i < ROWS; i++) {
+                            document.getElementById(`${symbol}_${dir}_${i}_price`).value = "";
+                            document.getElementById(`${symbol}_${dir}_${i}_from`).value = "";
+                            document.getElementById(`${symbol}_${dir}_${i}_to`).value = "";
+                            document.getElementById(`${symbol}_${dir}_${i}_strong`).checked = false;
+                        }
+                    }
+
+                    showToast(`${toSubmit.length} zone(s) added for ${symbol}`, "ok");
+                    loadZones();
+                } catch (e) {
+                    showToast("Error: " + e.message, "err");
+                } finally {
+                    btn.classList.remove("loading");
+                }
+            }
+
+            // ── Load & display zones ──────────────────────────────────────────────────────
+
+            async function loadZones() {
+                const list = document.getElementById("zonesList");
+                try {
+                    const res = await fetch("/zones/all");
+                    const zones = await res.json();
+
+                    if (zones.length === 0) {
+                        list.innerHTML = '<div class="empty-state">no active zones</div>';
+                        return;
+                    }
+
+                    list.innerHTML = zones
+                        .map((z) => {
+                            const priceStr = z.kind === "zone" ? `${z.from} — ${z.to}` : `${z.price}`;
+                            const time = new Date(z.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+                            return `
+        <div class="zone-item">
+          <span class="z-symbol">${z.symbol}</span>
+          <span class="z-dir ${z.direction}">${z.direction.toUpperCase()}</span>
+          <span class="z-strength ${z.strength}">${z.strength.toUpperCase()}</span>
+          <span class="z-price">${priceStr}</span>
+          <span class="z-time">${time}</span>
+        </div>`;
+                        })
+                        .join("");
+                } catch (e) {
+                    list.innerHTML = '<div class="empty-state">could not load zones</div>';
+                }
+            }
+
+            // ── Clock ─────────────────────────────────────────────────────────────────────
+
+            function updateClock() {
+                document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-GB");
+            }
+
+            // ── Toast ─────────────────────────────────────────────────────────────────────
+
+            let toastTimer;
+            function showToast(msg, type) {
+                const t = document.getElementById("toast");
+                t.textContent = msg;
+                t.className = `toast ${type} show`;
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => t.classList.remove("show"), 3000);
+            }
+
+            // ── Init ──────────────────────────────────────────────────────────────────────
+
+            buildUI();
+            loadZones();
+            updateClock();
+            setInterval(updateClock, 1000);
+        </script>
+    </body>
+</html>
