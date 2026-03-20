@@ -1,210 +1,933 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zone Levels</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg:        #f4f5f7;
-    --surface:   #ffffff;
-    --border:    #dde1e9;
-    --border2:   #c4cad6;
-    --text:      #1e2330;
-    --muted:     #8b93a4;
-    --buy:       #007a4d;
-    --buy-dim:   #007a4d14;
-    --sell:      #c0252e;
-    --sell-dim:  #c0252e12;
-    --strong:    #b07800;
-    --mono:      'IBM Plex Mono', monospace;
-  }
-  body { background:var(--bg); color:var(--text); font-family:var(--mono); font-size:13px; min-height:100vh; padding:32px 24px; }
-  header { display:flex; align-items:baseline; margin-bottom:36px; padding-bottom:16px; border-bottom:2px solid var(--border); }
-  header h1 { font-size:15px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--text); }
-  header .clock { font-size:12px; color:var(--muted); margin-left:auto; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
-  .symbol-block { border:1px solid var(--border); background:var(--surface); box-shadow:0 1px 3px rgba(0,0,0,0.06); }
-  .symbol-header { padding:9px 14px; border-bottom:1px solid var(--border); background:#edf0f5; }
-  .symbol-name { font-size:13px; font-weight:600; letter-spacing:0.14em; color:var(--text); }
-  .row { display:grid; grid-template-columns:52px 1fr; border-bottom:1px solid var(--border); min-height:38px; }
-  .row:last-child { border-bottom:none; }
-  .row-label { display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; letter-spacing:0.1em; border-right:1px solid var(--border); }
-  .row.sell .row-label { color:var(--sell); background:var(--sell-dim); }
-  .row.buy  .row-label { color:var(--buy);  background:var(--buy-dim);  }
-  .row-inputs { display:flex; align-items:center; padding:0 10px; gap:8px; }
-  .sep { color:var(--muted); font-size:11px; flex-shrink:0; }
-  input[type="number"] { background:transparent; border:none; border-bottom:1px solid var(--border2); color:var(--text); font-family:var(--mono); font-size:12px; padding:3px 0; width:80px; outline:none; transition:border-color .15s; -moz-appearance:textfield; }
-  input[type="number"]::-webkit-outer-spin-button,
-  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; }
-  input[type="number"]:focus { border-bottom-color:var(--text); }
-  input[type="number"]::placeholder { color:#a8b0bf; font-size:11px; }
-  .strong-wrap { display:flex; align-items:center; gap:6px; margin-left:auto; flex-shrink:0; cursor:pointer; user-select:none; }
-  .strong-wrap input[type="checkbox"] { display:none; }
-  .strong-box { width:13px; height:13px; border:1px solid var(--border2); background:transparent; display:flex; align-items:center; justify-content:center; transition:all .15s; flex-shrink:0; }
-  .strong-wrap input:checked + .strong-box { background:var(--strong); border-color:var(--strong); }
-  .strong-wrap input:checked + .strong-box::after { content:''; display:block; width:5px; height:5px; background:#fff; clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%); }
-  .strong-label { font-size:10px; color:var(--muted); letter-spacing:0.06em; transition:color .15s; }
-  .strong-wrap:has(input:checked) .strong-label { color:var(--strong); }
-  .submit-btn { width:100%; padding:8px; background:none; border:none; border-top:1px solid var(--border); color:var(--muted); font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; transition:all .15s; }
-  .submit-btn:hover { color:var(--text); background:#f0f2f6; }
-  .submit-btn.loading { opacity:0.4; pointer-events:none; }
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Zone Levels</title>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+        <style>
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
 
-  /* Zone log */
-  .zones-panel { margin-top:40px; border-top:2px solid var(--border); padding-top:24px; }
-  .zones-panel h2 { font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--muted); margin-bottom:16px; }
-  .zones-list { display:flex; flex-direction:column; gap:4px; }
-  .zone-item { display:grid; grid-template-columns:80px 44px 60px 1fr 70px 60px; align-items:center; gap:10px; padding:7px 14px; border:1px solid var(--border); font-size:12px; background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,0.04); animation:fadeIn .2s ease; }
-  .zone-item.expired { opacity:0.4; filter:saturate(0.2); }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
-  .zone-item .z-symbol { color:var(--text); font-weight:600; letter-spacing:0.08em; }
-  .zone-item.expired .z-symbol { color:var(--muted); }
-  .zone-item .z-dir.buy  { color:var(--buy); }
-  .zone-item .z-dir.sell { color:var(--sell); }
-  .zone-item .z-strength { color:var(--strong); font-size:11px; }
-  .zone-item .z-strength.regular { color:var(--muted); }
-  .zone-item .z-price { color:var(--text); font-variant-numeric:tabular-nums; }
-  .zone-item .z-date { color:var(--muted); font-size:10px; }
-  .expired-tag { font-size:9px; letter-spacing:0.1em; color:var(--muted); border:1px solid var(--border2); padding:1px 5px; text-transform:uppercase; }
-  .empty-state { color:var(--muted); font-size:12px; padding:16px 0; text-align:center; letter-spacing:0.06em; }
-  .toast { position:fixed; bottom:24px; right:24px; padding:10px 18px; font-size:12px; letter-spacing:0.06em; border:1px solid; opacity:0; transform:translateY(8px); transition:all .2s; pointer-events:none; background:var(--surface); box-shadow:0 4px 12px rgba(0,0,0,0.1); }
-  .toast.show { opacity:1; transform:none; }
-  .toast.ok  { border-color:var(--buy);  color:var(--buy); }
-  .toast.err { border-color:var(--sell); color:var(--sell); }
-</style>
-</head>
-<body>
-<header>
-  <h1>Zone Levels</h1>
-  <span class="clock" id="clock">--:--:--</span>
-</header>
-<div class="grid" id="symbolBlocks"></div>
-<div class="zones-panel">
-  <h2>Zone Log</h2>
-  <div class="zones-list" id="zonesList"></div>
-</div>
-<div class="toast" id="toast"></div>
-<script>
-const SYMBOLS    = ['EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','EURGBP','EURJPY','XAUUSD'];
-const DIRECTIONS = ['sell','buy'];
-const ROWS       = 6;
+            :root {
+                --bg: #f4f5f7;
+                --surface: #ffffff;
+                --border: #dde1e9;
+                --border2: #c4cad6;
+                --text: #1e2330;
+                --muted: #8b93a4;
+                --buy: #007a4d;
+                --buy-dim: #007a4d14;
+                --sell: #c0252e;
+                --sell-dim: #c0252e12;
+                --strong: #b07800;
+                --watched: #1455b3;
+                --mono: "IBM Plex Mono", monospace;
+            }
 
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 13px;
+                min-height: 100vh;
+                padding: 28px 24px;
+            }
 
-function buildUI() {
-  const container = document.getElementById('symbolBlocks');
-  SYMBOLS.forEach(symbol => {
-    const block = document.createElement('div');
-    block.className = 'symbol-block';
-    const rows = DIRECTIONS.map(dir =>
-      Array.from({ length: ROWS }, (_, i) => `
-        <div class="row ${dir}">
-          <div class="row-label">${dir.toUpperCase()}</div>
-          <div class="row-inputs">
-            <input type="number" step="any" placeholder="level" id="${symbol}_${dir}_${i}_price" />
-            <span class="sep">|</span>
-            <input type="number" step="any" placeholder="from"  id="${symbol}_${dir}_${i}_from"  />
-            <span class="sep">:</span>
-            <input type="number" step="any" placeholder="to"    id="${symbol}_${dir}_${i}_to"    />
-            <label class="strong-wrap">
-              <input type="checkbox" id="${symbol}_${dir}_${i}_strong" />
-              <span class="strong-box"></span>
-              <span class="strong-label">STR</span>
-            </label>
+            /* ── Header ── */
+            header {
+                display: flex;
+                align-items: baseline;
+                margin-bottom: 24px;
+                padding-bottom: 14px;
+                border-bottom: 2px solid var(--border);
+            }
+            header h1 {
+                font-size: 15px;
+                font-weight: 600;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+            }
+            header .clock {
+                font-size: 12px;
+                color: var(--muted);
+                margin-left: auto;
+            }
+
+            /* ── Shared block chrome ── */
+            .block {
+                border: 1px solid var(--border);
+                background: var(--surface);
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+                margin-bottom: 20px;
+            }
+            .block-header {
+                padding: 8px 14px;
+                border-bottom: 1px solid var(--border);
+                background: #edf0f5;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .block-title {
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--text);
+            }
+
+            /* ── Submit button ── */
+            .submit-btn {
+                display: block;
+                width: 100%;
+                padding: 8px;
+                background: none;
+                border: none;
+                border-top: 1px solid var(--border);
+                color: var(--muted);
+                font-family: var(--mono);
+                font-size: 10px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                cursor: pointer;
+                transition: all 0.15s;
+            }
+            .submit-btn:hover {
+                color: var(--text);
+                background: #f0f2f6;
+            }
+            .submit-btn.loading {
+                opacity: 0.4;
+                pointer-events: none;
+            }
+
+            /* ── Events ── */
+            .events-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .event-cell {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 7px 14px;
+                border-right: 1px solid var(--border);
+                border-bottom: 1px solid var(--border);
+            }
+            .event-cell:nth-child(3n) {
+                border-right: none;
+            }
+            .event-cell:nth-last-child(-n + 3) {
+                border-bottom: none;
+            }
+            .event-lbl {
+                font-size: 10px;
+                color: var(--muted);
+                letter-spacing: 0.08em;
+                flex-shrink: 0;
+            }
+            .event-unit {
+                font-size: 11px;
+                color: var(--muted);
+                flex-shrink: 0;
+            }
+
+            input[type="time"] {
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid var(--border2);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 12px;
+                padding: 3px 2px;
+                outline: none;
+                color-scheme: light;
+                width: 80px;
+                transition: border-color 0.15s;
+            }
+            input[type="time"]:focus {
+                border-bottom-color: var(--text);
+            }
+
+            .event-cell input[type="number"] {
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid var(--border2);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 12px;
+                padding: 3px 0;
+                width: 36px;
+                text-align: center;
+                outline: none;
+                transition: border-color 0.15s;
+                -moz-appearance: textfield;
+                flex-shrink: 0;
+            }
+            .event-cell input[type="number"]::-webkit-outer-spin-button,
+            .event-cell input[type="number"]::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+            }
+            .event-cell input[type="number"]:focus {
+                border-bottom-color: var(--text);
+            }
+
+            .events-footer {
+                display: flex;
+                align-items: center;
+                border-top: 1px solid var(--border);
+            }
+            .add-row-btn {
+                padding: 8px 14px;
+                background: none;
+                border: none;
+                border-right: 1px solid var(--border);
+                color: var(--muted);
+                font-family: var(--mono);
+                font-size: 10px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                cursor: pointer;
+                transition: all 0.15s;
+                white-space: nowrap;
+            }
+            .add-row-btn:hover {
+                color: var(--text);
+                background: #f0f2f6;
+            }
+            .events-footer .submit-btn {
+                flex: 1;
+                border-top: none;
+            }
+
+            /* ── Symbol rows ── */
+            .row {
+                display: flex;
+                align-items: stretch;
+                border-bottom: 1px solid var(--border);
+                min-height: 36px;
+            }
+            .row:last-of-type {
+                border-bottom: none;
+            }
+
+            .row-sr,
+            .row-opt {
+                display: flex;
+                align-items: center;
+                flex: 1;
+                gap: 5px;
+                padding: 3px 8px;
+                min-width: 0;
+            }
+
+            .row-split {
+                width: 1px;
+                background: var(--border2);
+                flex-shrink: 0;
+                margin: 5px 0;
+            }
+
+            .row-badge {
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                padding: 2px 5px;
+                flex-shrink: 0;
+                min-width: 38px;
+                text-align: center;
+            }
+            .row.sell .row-sr .row-badge,
+            .row.sell .row-opt .row-badge {
+                color: var(--sell);
+                background: var(--sell-dim);
+            }
+            .row.buy .row-sr .row-badge,
+            .row.buy .row-opt .row-badge {
+                color: var(--buy);
+                background: var(--buy-dim);
+            }
+
+            /* Number inputs inside row sections */
+            .row-sr input[type="number"],
+            .row-opt input[type="number"] {
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid var(--border2);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 12px;
+                padding: 3px 0;
+                width: 68px;
+                outline: none;
+                transition: border-color 0.15s;
+                -moz-appearance: textfield;
+                flex-shrink: 0;
+            }
+            .row-sr input[type="number"]::-webkit-outer-spin-button,
+            .row-sr input[type="number"]::-webkit-inner-spin-button,
+            .row-opt input[type="number"]::-webkit-outer-spin-button,
+            .row-opt input[type="number"]::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+            }
+            .row-sr input[type="number"]:focus,
+            .row-opt input[type="number"]:focus {
+                border-bottom-color: var(--text);
+            }
+            .row-sr input[type="number"]::placeholder,
+            .row-opt input[type="number"]::placeholder {
+                color: #a8b0bf;
+                font-size: 11px;
+            }
+
+            /* Time input inside options row */
+            .row-opt input[type="time"] {
+                width: 74px;
+            }
+
+            .sep {
+                color: var(--muted);
+                font-size: 11px;
+                flex-shrink: 0;
+            }
+
+            /* ── STR checkbox ── */
+            .strong-wrap {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                flex-shrink: 0;
+                cursor: pointer;
+                user-select: none;
+            }
+            .strong-wrap input[type="checkbox"] {
+                display: none;
+            }
+            .strong-box {
+                width: 12px;
+                height: 12px;
+                border: 1px solid var(--border2);
+                background: transparent;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.15s;
+                flex-shrink: 0;
+            }
+            .strong-wrap input:checked + .strong-box {
+                background: var(--strong);
+                border-color: var(--strong);
+            }
+            .strong-wrap input:checked + .strong-box::after {
+                content: "";
+                display: block;
+                width: 5px;
+                height: 5px;
+                background: #fff;
+                clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+            }
+            .strong-lbl {
+                font-size: 9px;
+                color: var(--muted);
+                letter-spacing: 0.06em;
+                transition: color 0.15s;
+            }
+            .strong-wrap:has(input:checked) .strong-lbl {
+                color: var(--strong);
+            }
+
+            /* ── W.ONLY checkbox ── */
+            .watch-wrap {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                flex-shrink: 0;
+                cursor: pointer;
+                user-select: none;
+            }
+            .watch-wrap input[type="checkbox"] {
+                display: none;
+            }
+            .watch-box {
+                width: 12px;
+                height: 12px;
+                border: 1px solid var(--border2);
+                background: transparent;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.15s;
+                flex-shrink: 0;
+            }
+            .watch-wrap input:checked + .watch-box {
+                background: var(--watched);
+                border-color: var(--watched);
+            }
+            .watch-wrap input:checked + .watch-box::after {
+                content: "";
+                display: block;
+                width: 5px;
+                height: 5px;
+                background: #fff;
+                clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+            }
+            .watch-lbl {
+                font-size: 9px;
+                color: var(--muted);
+                letter-spacing: 0.06em;
+                transition: color 0.15s;
+            }
+            .watch-wrap:has(input:checked) .watch-lbl {
+                color: var(--watched);
+            }
+
+            /* ── Options S/M/L radio (per row) ── */
+            .opt-size-group {
+                display: flex;
+                border: 1px solid var(--border2);
+                overflow: hidden;
+                margin-left: auto;
+                flex-shrink: 0;
+            }
+            .opt-sz {
+                cursor: pointer;
+                user-select: none;
+                font-size: 9px;
+                letter-spacing: 0.1em;
+                color: var(--muted);
+                padding: 2px 7px;
+                border-right: 1px solid var(--border2);
+                transition:
+                    background 0.12s,
+                    color 0.12s;
+                display: flex;
+                align-items: center;
+            }
+            .opt-sz:last-child {
+                border-right: none;
+            }
+            .opt-sz input[type="radio"] {
+                display: none;
+            }
+            .opt-sz:has(input:checked) {
+                background: var(--border);
+                color: var(--text);
+                font-weight: 600;
+            }
+
+            /* ── Zone log ── */
+            .zones-panel {
+                margin-top: 36px;
+                border-top: 2px solid var(--border);
+                padding-top: 22px;
+            }
+            .zones-panel h2 {
+                font-size: 11px;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 14px;
+            }
+            .zones-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .zone-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 7px 14px;
+                border: 1px solid var(--border);
+                font-size: 12px;
+                background: var(--surface);
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+                animation: fadeIn 0.2s ease;
+            }
+            .zone-item.expired {
+                opacity: 0.38;
+                filter: saturate(0.15);
+            }
+            .zone-item.is-opt {
+                border-left: 3px solid var(--border2);
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-4px);
+                }
+                to {
+                    opacity: 1;
+                    transform: none;
+                }
+            }
+
+            .zone-item .z-sym {
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                min-width: 72px;
+                flex-shrink: 0;
+            }
+            .zone-item .z-dir {
+                font-size: 11px;
+                min-width: 46px;
+                flex-shrink: 0;
+            }
+            .zone-item .z-dir.buy,
+            .zone-item .z-dir.above {
+                color: var(--buy);
+            }
+            .zone-item .z-dir.sell,
+            .zone-item .z-dir.below {
+                color: var(--sell);
+            }
+            .zone-item .z-str {
+                font-size: 11px;
+                min-width: 56px;
+                flex-shrink: 0;
+                color: var(--strong);
+            }
+            .zone-item .z-str.regular {
+                color: var(--muted);
+            }
+            .zone-item .z-watched {
+                font-size: 9px;
+                color: var(--watched);
+                border: 1px solid currentColor;
+                padding: 0 4px;
+                flex-shrink: 0;
+                letter-spacing: 0.06em;
+            }
+            .zone-item .z-opt-tag {
+                font-size: 9px;
+                background: var(--border);
+                color: var(--muted);
+                padding: 1px 5px;
+                letter-spacing: 0.08em;
+                flex-shrink: 0;
+                font-weight: 600;
+            }
+            .zone-item .z-size {
+                font-size: 9px;
+                color: var(--muted);
+                border: 1px solid var(--border2);
+                padding: 0 4px;
+                flex-shrink: 0;
+                letter-spacing: 0.06em;
+            }
+            .zone-item .z-etime {
+                font-size: 10px;
+                color: var(--muted);
+                font-variant-numeric: tabular-nums;
+                flex-shrink: 0;
+            }
+            .zone-item .z-price {
+                color: var(--text);
+                font-variant-numeric: tabular-nums;
+                flex: 1;
+            }
+            .zone-item .z-date {
+                color: var(--muted);
+                font-size: 10px;
+                flex-shrink: 0;
+            }
+            .expired-tag {
+                font-size: 9px;
+                letter-spacing: 0.1em;
+                color: var(--muted);
+                border: 1px solid var(--border2);
+                padding: 1px 5px;
+                text-transform: uppercase;
+                flex-shrink: 0;
+            }
+            .empty-state {
+                color: var(--muted);
+                font-size: 12px;
+                padding: 16px 0;
+                text-align: center;
+                letter-spacing: 0.06em;
+            }
+
+            /* ── Toast ── */
+            .toast {
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                padding: 10px 18px;
+                font-size: 12px;
+                letter-spacing: 0.06em;
+                border: 1px solid;
+                opacity: 0;
+                transform: translateY(8px);
+                transition: all 0.2s;
+                pointer-events: none;
+                background: var(--surface);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+                font-family: var(--mono);
+            }
+            .toast.show {
+                opacity: 1;
+                transform: none;
+            }
+            .toast.ok {
+                border-color: var(--buy);
+                color: var(--buy);
+            }
+            .toast.err {
+                border-color: var(--sell);
+                color: var(--sell);
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Zone Levels</h1>
+            <span class="clock" id="clock">--:--:--</span>
+        </header>
+
+        <!-- Events -->
+        <div class="block">
+            <div class="block-header"><span class="block-title">Events</span></div>
+            <div id="eventsGrid" class="events-grid"></div>
+            <div class="events-footer">
+                <button class="add-row-btn" id="addEventRowBtn">+ Add Row</button>
+                <button class="submit-btn" id="submitEventsBtn">+ Submit Events</button>
+            </div>
+        </div>
+
+        <!-- Symbol blocks (single column) -->
+        <div id="symbolBlocks"></div>
+
+        <!-- Zone log -->
+        <div class="zones-panel">
+            <h2>Zone Log</h2>
+            <div class="zones-list" id="zonesList"></div>
+        </div>
+
+        <div class="toast" id="toast"></div>
+
+        <script>
+            const SYMBOLS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "EURGBP", "EURJPY", "XAUUSD"];
+            const DIRECTIONS = ["sell", "buy"];
+            const OPT_DIR = { sell: "below", buy: "above" };
+            const ROWS = 6;
+            const EVENT_COLS = 3;
+
+            let eventCount = EVENT_COLS;
+
+            function todayStr() {
+                return new Date().toISOString().slice(0, 10);
+            }
+
+            // ── Events ──────────────────────────────────────────────────────────────────
+
+            function renderEventCell(i) {
+                return `
+      <div class="event-cell">
+        <span class="event-lbl">TIME</span>
+        <input type="time" id="ev_${i}_time" />
+        <span class="event-lbl">SUSPEND</span>
+        <input type="number" id="ev_${i}_suspend" value="5" min="1" step="1" />
+        <span class="event-unit">min</span>
+      </div>`;
+            }
+
+            function renderEvents() {
+                document.getElementById("eventsGrid").innerHTML = Array.from({ length: eventCount }, (_, i) => renderEventCell(i)).join("");
+            }
+
+            function addEventRow() {
+                // preserve filled values across re-render
+                const saved = [];
+                for (let i = 0; i < eventCount; i++) {
+                    const t = document.getElementById(`ev_${i}_time`);
+                    const s = document.getElementById(`ev_${i}_suspend`);
+                    saved.push({ time: t ? t.value : "", suspend: s ? s.value : "5" });
+                }
+                eventCount += EVENT_COLS;
+                renderEvents();
+                saved.forEach((v, i) => {
+                    const t = document.getElementById(`ev_${i}_time`);
+                    const s = document.getElementById(`ev_${i}_suspend`);
+                    if (t) t.value = v.time;
+                    if (s) s.value = v.suspend;
+                });
+            }
+
+            async function submitEvents(btn) {
+                const toSubmit = [];
+                for (let i = 0; i < eventCount; i++) {
+                    const t = document.getElementById(`ev_${i}_time`);
+                    if (!t || !t.value) continue;
+                    const s = document.getElementById(`ev_${i}_suspend`);
+                    toSubmit.push({ time: t.value, suspendMinutes: parseInt(s?.value) || 5 });
+                }
+                if (!toSubmit.length) {
+                    showToast("No event times filled in", "err");
+                    return;
+                }
+                btn.classList.add("loading");
+                try {
+                    for (const evt of toSubmit) {
+                        const res = await fetch("/events", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(evt),
+                        });
+                        if (!res.ok) throw new Error(await res.text());
+                    }
+                    for (let i = 0; i < eventCount; i++) {
+                        const t = document.getElementById(`ev_${i}_time`);
+                        const s = document.getElementById(`ev_${i}_suspend`);
+                        if (t) t.value = "";
+                        if (s) s.value = "5";
+                    }
+                    showToast(`${toSubmit.length} event(s) submitted`, "ok");
+                } catch (e) {
+                    showToast("Error: " + e.message, "err");
+                } finally {
+                    btn.classList.remove("loading");
+                }
+            }
+
+            // ── Symbol blocks ────────────────────────────────────────────────────────────
+
+            function buildRow(symbol, dir) {
+                const optDir = OPT_DIR[dir];
+                return Array.from(
+                    { length: ROWS },
+                    (_, i) => `
+      <div class="row ${dir}">
+
+        <div class="row-sr">
+          <div class="row-badge">${dir.toUpperCase()}</div>
+          <input type="number" step="any" placeholder="level" id="${symbol}_${dir}_${i}_price" />
+          <span class="sep">|</span>
+          <input type="number" step="any" placeholder="from"  id="${symbol}_${dir}_${i}_from"  />
+          <span class="sep">:</span>
+          <input type="number" step="any" placeholder="to"    id="${symbol}_${dir}_${i}_to"    />
+          <label class="strong-wrap">
+            <input type="checkbox" id="${symbol}_${dir}_${i}_strong" />
+            <span class="strong-box"></span>
+            <span class="strong-lbl">STR</span>
+          </label>
+          <label class="watch-wrap">
+            <input type="checkbox" id="${symbol}_${dir}_${i}_watched" />
+            <span class="watch-box"></span>
+            <span class="watch-lbl">W.ONLY</span>
+          </label>
+        </div>
+
+        <div class="row-split"></div>
+
+        <div class="row-opt">
+          <div class="row-badge">${optDir.toUpperCase()}</div>
+          <input type="number" step="any" placeholder="level" id="opt_${symbol}_${optDir}_${i}_price" />
+          <input type="time" id="opt_${symbol}_${optDir}_${i}_time" value="16:00" />
+          <div class="opt-size-group">
+            <label class="opt-sz"><input type="radio" name="opt_${symbol}_${optDir}_${i}_sz" value="small"  />S</label>
+            <label class="opt-sz"><input type="radio" name="opt_${symbol}_${optDir}_${i}_sz" value="medium" checked />M</label>
+            <label class="opt-sz"><input type="radio" name="opt_${symbol}_${optDir}_${i}_sz" value="large"  />L</label>
           </div>
-        </div>`).join('')
-    ).join('');
-    block.innerHTML = `
-      <div class="symbol-header"><span class="symbol-name">${symbol}</span></div>
-      ${rows}
-      <button class="submit-btn" data-symbol="${symbol}">+ SUBMIT ${symbol}</button>`;
-    container.appendChild(block);
-  });
-  document.querySelectorAll('.submit-btn').forEach(btn =>
-    btn.addEventListener('click', () => submitSymbol(btn.dataset.symbol, btn)));
-}
+        </div>
 
-async function submitSymbol(symbol, btn) {
-  const toSubmit = [];
-  for (const dir of DIRECTIONS) {
-    for (let i = 0; i < ROWS; i++) {
-      const price  = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_price`).value);
-      const from   = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_from`).value);
-      const to     = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_to`).value);
-      const strong = document.getElementById(`${symbol}_${dir}_${i}_strong`).checked;
-      const hasPoint = !isNaN(price), hasZone = !isNaN(from) && !isNaN(to);
-      if (!hasPoint && !hasZone) continue;
-      toSubmit.push({ symbol, direction: dir,
-        strength: strong ? 'strong' : 'regular',
-        kind: hasZone ? 'zone' : 'point',
-        ...(hasZone ? { from, to } : { price }) });
-    }
-  }
-  if (!toSubmit.length) { showToast('Nothing to submit for ' + symbol, 'err'); return; }
-  btn.classList.add('loading');
-  try {
-    for (const zone of toSubmit) {
-      const res = await fetch('/zones', { method:'POST',
-        headers:{'Content-Type':'application/json'}, body:JSON.stringify(zone) });
-      if (!res.ok) throw new Error(await res.text());
-    }
-    for (const dir of DIRECTIONS)
-      for (let i = 0; i < ROWS; i++) {
-        document.getElementById(`${symbol}_${dir}_${i}_price`).value = '';
-        document.getElementById(`${symbol}_${dir}_${i}_from`).value  = '';
-        document.getElementById(`${symbol}_${dir}_${i}_to`).value    = '';
-        document.getElementById(`${symbol}_${dir}_${i}_strong`).checked = false;
-      }
-    showToast(`${toSubmit.length} zone(s) added for ${symbol}`, 'ok');
-    loadZones();
-  } catch(e) { showToast('Error: ' + e.message, 'err'); }
-  finally    { btn.classList.remove('loading'); }
-}
+      </div>`,
+                ).join("");
+            }
 
-async function loadZones() {
-  const list  = document.getElementById('zonesList');
-  const today = todayStr();
-  try {
-    const zones = await (await fetch('/zones/all')).json();
-    if (!zones.length) { list.innerHTML = '<div class="empty-state">no zones recorded</div>'; return; }
-    zones.sort((a, b) => {
-      if (a.date !== b.date) return a.date > b.date ? -1 : 1;
-      return a.createdAt > b.createdAt ? -1 : 1;
-    });
-    list.innerHTML = zones.map(z => {
-      const expired   = z.date !== today;
-      const priceStr  = z.kind === 'zone' ? `${z.from} — ${z.to}` : `${z.price}`;
-      const dateLabel = expired
-        ? z.date
-        : new Date(z.createdAt).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
-      return `
-        <div class="zone-item${expired ? ' expired' : ''}">
-          <span class="z-symbol">${z.symbol}</span>
-          <span class="z-dir ${z.direction}">${z.direction.toUpperCase()}</span>
-          <span class="z-strength ${z.strength}">${z.strength.toUpperCase()}</span>
-          <span class="z-price">${priceStr}</span>
-          <span class="z-date">${dateLabel}</span>
-          <span>${expired ? '<span class="expired-tag">expired</span>' : ''}</span>
-        </div>`;
-    }).join('');
-  } catch(e) { list.innerHTML = '<div class="empty-state">could not load zones</div>'; }
-}
+            function buildUI() {
+                const container = document.getElementById("symbolBlocks");
+                SYMBOLS.forEach((symbol) => {
+                    const block = document.createElement("div");
+                    block.className = "block";
+                    const rows = DIRECTIONS.map((dir) => buildRow(symbol, dir)).join("");
+                    block.innerHTML = `
+        <div class="block-header"><span class="block-title">${symbol}</span></div>
+        ${rows}
+        <button class="submit-btn" data-symbol="${symbol}">+ Submit ${symbol}</button>`;
+                    container.appendChild(block);
+                });
+                document
+                    .querySelectorAll(".submit-btn[data-symbol]")
+                    .forEach((btn) => btn.addEventListener("click", () => submitSymbol(btn.dataset.symbol, btn)));
+            }
 
-function updateClock() {
-  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB');
-}
+            // ── Submit zones ─────────────────────────────────────────────────────────────
 
-let toastTimer;
-function showToast(msg, type) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = `toast ${type} show`;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
-}
+            async function submitSymbol(symbol, btn) {
+                const toSubmit = [];
 
-buildUI(); loadZones(); updateClock(); setInterval(updateClock, 1000);
-</script>
-</body>
+                for (const dir of DIRECTIONS) {
+                    const optDir = OPT_DIR[dir];
+
+                    for (let i = 0; i < ROWS; i++) {
+                        // S/R zone — point or zone range
+                        const price = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_price`).value);
+                        const from = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_from`).value);
+                        const to = parseFloat(document.getElementById(`${symbol}_${dir}_${i}_to`).value);
+                        const strong = document.getElementById(`${symbol}_${dir}_${i}_strong`).checked;
+                        const watched = document.getElementById(`${symbol}_${dir}_${i}_watched`).checked;
+                        const hasPoint = !isNaN(price);
+                        const hasZone = !isNaN(from) && !isNaN(to);
+                        if (hasPoint || hasZone) {
+                            toSubmit.push({
+                                symbol,
+                                direction: dir,
+                                strength: strong ? "strong" : "regular",
+                                watchedOnly: watched,
+                                kind: hasZone ? "zone" : "point",
+                                ...(hasZone ? { from, to } : { price }),
+                            });
+                        }
+
+                        // Options zone — point only, with time and S/M/L size
+                        const oPrice = parseFloat(document.getElementById(`opt_${symbol}_${optDir}_${i}_price`).value);
+                        if (!isNaN(oPrice)) {
+                            const oTime = document.getElementById(`opt_${symbol}_${optDir}_${i}_time`).value || "16:00";
+                            const szEl = document.querySelector(`input[name="opt_${symbol}_${optDir}_${i}_sz"]:checked`);
+                            const oSize = szEl ? szEl.value : "medium";
+                            toSubmit.push({
+                                symbol,
+                                direction: optDir,
+                                strength: "regular",
+                                watchedOnly: false,
+                                kind: "point",
+                                price: oPrice,
+                                size: oSize,
+                                time: oTime,
+                            });
+                        }
+                    }
+                }
+
+                if (!toSubmit.length) {
+                    showToast("Nothing to submit for " + symbol, "err");
+                    return;
+                }
+
+                btn.classList.add("loading");
+                try {
+                    for (const zone of toSubmit) {
+                        const res = await fetch("/zones", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(zone),
+                        });
+                        if (!res.ok) throw new Error(await res.text());
+                    }
+
+                    // Clear all inputs for this symbol
+                    for (const dir of DIRECTIONS) {
+                        const optDir = OPT_DIR[dir];
+                        for (let i = 0; i < ROWS; i++) {
+                            ["price", "from", "to"].forEach((f) => {
+                                document.getElementById(`${symbol}_${dir}_${i}_${f}`).value = "";
+                            });
+                            document.getElementById(`${symbol}_${dir}_${i}_strong`).checked = false;
+                            document.getElementById(`${symbol}_${dir}_${i}_watched`).checked = false;
+                            document.getElementById(`opt_${symbol}_${optDir}_${i}_price`).value = "";
+                            document.getElementById(`opt_${symbol}_${optDir}_${i}_time`).value = "16:00";
+                            const med = document.querySelector(`input[name="opt_${symbol}_${optDir}_${i}_sz"][value="medium"]`);
+                            if (med) med.checked = true;
+                        }
+                    }
+
+                    showToast(`${toSubmit.length} zone(s) added for ${symbol}`, "ok");
+                    loadZones();
+                } catch (e) {
+                    showToast("Error: " + e.message, "err");
+                } finally {
+                    btn.classList.remove("loading");
+                }
+            }
+
+            // ── Zone log ─────────────────────────────────────────────────────────────────
+
+            async function loadZones() {
+                const list = document.getElementById("zonesList");
+                const today = todayStr();
+                try {
+                    const zones = await (await fetch("/zones/all")).json();
+                    if (!zones.length) {
+                        list.innerHTML = '<div class="empty-state">no zones recorded</div>';
+                        return;
+                    }
+                    zones.sort((a, b) => {
+                        if (a.date !== b.date) return a.date > b.date ? -1 : 1;
+                        return a.createdAt > b.createdAt ? -1 : 1;
+                    });
+                    list.innerHTML = zones
+                        .map((z) => {
+                            const expired = z.date !== today;
+                            const priceStr = z.kind === "zone" ? `${z.from} — ${z.to}` : `${z.price}`;
+                            const dateLabel = expired
+                                ? z.date
+                                : new Date(z.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+                            const isOpt = z.direction === "above" || z.direction === "below";
+
+                            if (isOpt) {
+                                return `
+            <div class="zone-item is-opt${expired ? " expired" : ""}">
+              <span class="z-sym">${z.symbol}</span>
+              <span class="z-dir ${z.direction}">${z.direction.toUpperCase()}</span>
+              <span class="z-opt-tag">OPT</span>
+              ${z.size ? `<span class="z-size">${z.size[0].toUpperCase()}</span>` : ""}
+              ${z.time ? `<span class="z-etime">${z.time}</span>` : ""}
+              <span class="z-price">${priceStr}</span>
+              <span class="z-date">${dateLabel}</span>
+              ${expired ? '<span class="expired-tag">EXPIRED</span>' : ""}
+            </div>`;
+                            } else {
+                                return `
+            <div class="zone-item${expired ? " expired" : ""}">
+              <span class="z-sym">${z.symbol}</span>
+              <span class="z-dir ${z.direction}">${z.direction.toUpperCase()}</span>
+              <span class="z-str ${z.strength}">${z.strength.toUpperCase()}</span>
+              ${z.watchedOnly ? '<span class="z-watched">W.ONLY</span>' : ""}
+              <span class="z-price">${priceStr}</span>
+              <span class="z-date">${dateLabel}</span>
+              ${expired ? '<span class="expired-tag">EXPIRED</span>' : ""}
+            </div>`;
+                            }
+                        })
+                        .join("");
+                } catch (e) {
+                    list.innerHTML = '<div class="empty-state">could not load zones</div>';
+                }
+            }
+
+            // ── Clock & Toast ─────────────────────────────────────────────────────────────
+
+            function updateClock() {
+                document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-GB");
+            }
+
+            let toastTimer;
+            function showToast(msg, type) {
+                const t = document.getElementById("toast");
+                t.textContent = msg;
+                t.className = `toast ${type} show`;
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => t.classList.remove("show"), 3000);
+            }
+
+            // ── Init ──────────────────────────────────────────────────────────────────────
+
+            renderEvents();
+            buildUI();
+            loadZones();
+            updateClock();
+            setInterval(updateClock, 1000);
+            document.getElementById("addEventRowBtn").addEventListener("click", addEventRow);
+            document.getElementById("submitEventsBtn").addEventListener("click", () => submitEvents(document.getElementById("submitEventsBtn")));
+        </script>
+    </body>
 </html>
