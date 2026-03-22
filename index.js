@@ -8,6 +8,7 @@ const PORT = 3000;
 const ZONES_FILE = path.join(__dirname, "zones.json");
 const REPORTS_FILE = path.join(__dirname, "reports.json");
 const EVENTS_FILE = path.join(__dirname, "events.json");
+const OPTIONS_REPORTS_FILE = path.join(__dirname, "options-reports.json");
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -40,6 +41,14 @@ function writeEvents(e) {
   fs.writeFileSync(EVENTS_FILE, JSON.stringify(e, null, 2));
 }
 
+function readOptionsReports() {
+  if (!fs.existsSync(OPTIONS_REPORTS_FILE)) return [];
+  return JSON.parse(fs.readFileSync(OPTIONS_REPORTS_FILE, "utf8"));
+}
+function writeOptionsReports(r) {
+  fs.writeFileSync(OPTIONS_REPORTS_FILE, JSON.stringify(r, null, 2));
+}
+
 function isAfterCutoff() {
   return new Date().getHours() >= 20;
 }
@@ -69,6 +78,19 @@ app.get("/zones/:id", (req, res) => {
 // Events: get all  ← must be defined before the /:symbol wildcard
 app.get("/events", (req, res) => {
   res.json(readEvents());
+});
+
+// Options EA: fetch today's options zones (above/below) for a symbol — no cutoff, EA handles timing
+app.get("/options/:symbol", (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const today = todayDate();
+  const result = readZones().filter((z) => z.symbol === symbol && z.date === today && (z.direction === "above" || z.direction === "below"));
+  res.json(result);
+});
+
+// Options EA: view all options reports (for analysis)  ← must be before /:symbol wildcard
+app.get("/options-reports", (req, res) => {
+  res.json(readOptionsReports());
 });
 
 // EA: active zones for a symbol (today only, before cutoff)
@@ -131,6 +153,20 @@ app.post("/reports", (req, res) => {
   reports.push(report);
   writeReports(reports);
   console.log(`Report received: ticket=${report.ticket} symbol=${report.symbol} closedBy=${report.closedBy}`);
+  res.status(201).json({ ok: true });
+});
+
+// Options EA: receive a 5m statistics report
+app.post("/options-reports", (req, res) => {
+  const report = req.body;
+  if (!report || !report.zoneId) return res.status(400).json({ error: "Invalid options report payload" });
+  report.receivedAt = new Date().toISOString();
+  const reports = readOptionsReports();
+  reports.push(report);
+  writeOptionsReports(reports);
+  console.log(
+    `Options report: zone=${report.zoneId} symbol=${report.symbol} dir=${report.direction} status=${report.status} minsLeft=${report.minsBeforeExpiry}`,
+  );
   res.status(201).json({ ok: true });
 });
 
