@@ -26,7 +26,7 @@
 //--- Inputs
 input string InpServerURL             = "http://127.0.0.1:3000"; // Zone server URL
 input string InpSymbolName            = "";    // Symbol override (blank = chart symbol)
-input int    InpLocalTZOffsetHours    = 1;     // Expiry-time UTC offset (CET=1, CEST=2)
+input int    InpLocalTZOffsetHours    = 0;     // Expiry-time UTC offset (CET=1, CEST=2)
 input int    InpATRPeriod             = 14;    // ATR period (M5 bars)
 input int    InpBaselineATRBars       = 20;    // Bars used to compute session baseline ATR
 input double InpSLATRMult             = 2.0;   // SL distance: N × ATR from strike
@@ -61,7 +61,7 @@ struct OptionsZone
 OptionsZone g_zones[];
 int         g_zoneCount    = 0;
 long        g_magic        = 20260403;
-int         g_atrHandle    = INVALID_HANDLE;
+
 string      g_symbol       = "";
 datetime    g_lastPoll     = 0;
 int         g_lastBarCount = 0;
@@ -76,27 +76,58 @@ double PipSize()
    return SymbolInfoDouble(g_symbol, SYMBOL_POINT) * 10.0;
   }
 
+// Compute ATR as a simple mean True Range over the last InpATRPeriod completed
+// M5 bars.  Uses raw OHLC — no indicator handle or external file required.
 double GetATR()
   {
-   double buf[];
-   ArraySetAsSeries(buf, true);
-   if(CopyBuffer(g_atrHandle, 0, 1, 1, buf) < 1) return 0.0;
-   return buf[0];
+   int    period = InpATRPeriod;
+   double hi[], lo[], cl[];
+   ArraySetAsSeries(hi, true);
+   ArraySetAsSeries(lo, true);
+   ArraySetAsSeries(cl, true);
+   int need = period + 1; // period TRs each require the previous bar's close
+   if(CopyHigh (g_symbol, PERIOD_M5, 1, need, hi) < need) return 0.0;
+   if(CopyLow  (g_symbol, PERIOD_M5, 1, need, lo) < need) return 0.0;
+   if(CopyClose(g_symbol, PERIOD_M5, 1, need, cl) < need) return 0.0;
+   double sum = 0.0;
+   for(int i = 0; i < period; i++)
+     {
+      double tr = MathMax(hi[i] - lo[i],
+                 MathMax(MathAbs(hi[i] - cl[i + 1]),
+                         MathAbs(lo[i] - cl[i + 1])));
+      sum += tr;
+     }
+   return sum / period;
   }
 
-// Compute baseline ATR as the mean of the last InpBaselineATRBars completed-bar ATR values.
+// Compute baseline ATR as the mean of per-bar ATRs over the last
+// InpBaselineATRBars completed M5 bars.  Uses raw OHLC — no indicator handle.
 // Called once per day at the first timer tick after midnight UTC.
 void ComputeBaselineATR()
   {
-   double buf[];
-   ArraySetAsSeries(buf, true);
-   int copied = CopyBuffer(g_atrHandle, 0, 1, InpBaselineATRBars, buf);
-   if(copied < 1) { g_baselineATR = 0.0; return; }
-
+   int barsNeeded = InpBaselineATRBars + InpATRPeriod + 1;
+   double hi[], lo[], cl[];
+   ArraySetAsSeries(hi, true);
+   ArraySetAsSeries(lo, true);
+   ArraySetAsSeries(cl, true);
+   if(CopyHigh (g_symbol, PERIOD_M5, 1, barsNeeded, hi) < barsNeeded) { g_baselineATR = 0.0; return; }
+   if(CopyLow  (g_symbol, PERIOD_M5, 1, barsNeeded, lo) < barsNeeded) { g_baselineATR = 0.0; return; }
+   if(CopyClose(g_symbol, PERIOD_M5, 1, barsNeeded, cl) < barsNeeded) { g_baselineATR = 0.0; return; }
    double sum = 0.0;
-   for(int i = 0; i < copied; i++) sum += buf[i];
-   g_baselineATR = sum / copied;
-   PrintFormat("[optRaider-v6] Baseline ATR computed: %.5f (%d bars)", g_baselineATR, copied);
+   for(int b = 0; b < InpBaselineATRBars; b++)
+     {
+      double atrSum = 0.0;
+      for(int i = b; i < b + InpATRPeriod; i++)
+        {
+         double tr = MathMax(hi[i] - lo[i],
+                    MathMax(MathAbs(hi[i] - cl[i + 1]),
+                            MathAbs(lo[i] - cl[i + 1])));
+         atrSum += tr;
+        }
+      sum += atrSum / InpATRPeriod;
+     }
+   g_baselineATR = sum / InpBaselineATRBars;
+   PrintFormat("[optRaider-v6] Baseline ATR computed: %.5f (%d bars)", g_baselineATR, InpBaselineATRBars);
   }
 
 // Returns the effective volatility regime:
@@ -584,9 +615,7 @@ int OnInit()
    if(Period() != PERIOD_M5)
       PrintFormat("[optRaider-v6] WARNING — designed for M5 chart (current period=%d min)", Period());
 
-   g_atrHandle = iATR(g_symbol, PERIOD_M5, InpATRPeriod);
-   if(g_atrHandle == INVALID_HANDLE)
-     { Print("[optRaider-v6] iATR init failed"); return INIT_FAILED; }
+
 
    MqlDateTime d;
    TimeToStruct(TimeGMT(), d);
@@ -609,8 +638,7 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    EventKillTimer();
-   if(g_atrHandle != INVALID_HANDLE)
-     { IndicatorRelease(g_atrHandle); g_atrHandle = INVALID_HANDLE; }
+
    Print("[optRaider-v6] Deinitialized");
   }
 

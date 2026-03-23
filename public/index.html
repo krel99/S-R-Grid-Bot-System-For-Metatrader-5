@@ -731,7 +731,7 @@
         <div class="row-opt">
           <div class="row-badge">${optDir.toUpperCase()}</div>
           <input type="number" step="any" placeholder="level" id="opt_${symbol}_${optDir}_${i}_price" />
-          <input type="time" id="opt_${symbol}_${optDir}_${i}_time" value="16:00" />
+          <input type="time" id="opt_${symbol}_${optDir}_${i}_time" value="14:00" />
           <div class="opt-size-group">
             <label class="opt-sz"><input type="radio" name="opt_${symbol}_${optDir}_${i}_sz" value="small"  />S</label>
             <label class="opt-sz"><input type="radio" name="opt_${symbol}_${optDir}_${i}_sz" value="medium" checked />M</label>
@@ -791,7 +791,7 @@
                         // Options zone — point only, with time and S/M/L size
                         const oPrice = parseFloat(document.getElementById(`opt_${symbol}_${optDir}_${i}_price`).value);
                         if (!isNaN(oPrice)) {
-                            const oTime = document.getElementById(`opt_${symbol}_${optDir}_${i}_time`).value || "16:00";
+                            const oTime = document.getElementById(`opt_${symbol}_${optDir}_${i}_time`).value || "14:00";
                             const szEl = document.querySelector(`input[name="opt_${symbol}_${optDir}_${i}_sz"]:checked`);
                             const oSize = szEl ? szEl.value : "medium";
                             toSubmit.push({
@@ -834,7 +834,7 @@
                             document.getElementById(`${symbol}_${dir}_${i}_strong`).checked = false;
                             document.getElementById(`${symbol}_${dir}_${i}_watched`).checked = false;
                             document.getElementById(`opt_${symbol}_${optDir}_${i}_price`).value = "";
-                            document.getElementById(`opt_${symbol}_${optDir}_${i}_time`).value = "16:00";
+                            document.getElementById(`opt_${symbol}_${optDir}_${i}_time`).value = "14:00";
                             const med = document.querySelector(`input[name="opt_${symbol}_${optDir}_${i}_sz"][value="medium"]`);
                             if (med) med.checked = true;
                         }

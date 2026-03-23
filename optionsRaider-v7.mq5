@@ -26,7 +26,7 @@
 //--- Inputs
 input string InpServerURL             = "http://127.0.0.1:3000"; // Zone server URL
 input string InpSymbolName            = "";    // Symbol override (blank = chart symbol)
-input int    InpLocalTZOffsetHours    = 1;     // Expiry-time UTC offset (CET=1, CEST=2)
+input int    InpLocalTZOffsetHours    = 0;     // Expiry-time UTC offset (CET=1, CEST=2)
 input int    InpATRPeriod             = 14;    // ATR period (M5 bars)
 input double InpSLATRMult             = 2.0;   // SL distance: N × ATR from strike
 input int    InpMaxSLPips             = 10;    // SL hard cap (pips)
@@ -53,7 +53,7 @@ struct OptionsZone
 OptionsZone g_zones[];
 int         g_zoneCount    = 0;
 long        g_magic        = 20260404;
-int         g_atrHandle    = INVALID_HANDLE;
+
 string      g_symbol       = "";
 datetime    g_lastPoll     = 0;
 int         g_lastBarCount = 0;
@@ -66,12 +66,30 @@ double PipSize()
    return SymbolInfoDouble(g_symbol, SYMBOL_POINT) * 10.0;
   }
 
+// ATR computed directly from OHLC — no indicator handle required.
+// Uses a simple mean of True Range over InpATRPeriod completed M5 bars,
+// eliminating the "cannot load indicator Average True Range" (error 4302)
+// that occurs in broker builds where the indicator file is unavailable.
 double GetATR()
   {
-   double buf[];
-   ArraySetAsSeries(buf, true);
-   if(CopyBuffer(g_atrHandle, 0, 1, 1, buf) < 1) return 0.0;
-   return buf[0];
+   int    period = InpATRPeriod;
+   double hi[], lo[], cl[];
+   ArraySetAsSeries(hi, true);
+   ArraySetAsSeries(lo, true);
+   ArraySetAsSeries(cl, true);
+   int need = period + 1; // period TRs each need the previous bar's close
+   if(CopyHigh (g_symbol, PERIOD_M5, 1, need, hi) < need) return 0.0;
+   if(CopyLow  (g_symbol, PERIOD_M5, 1, need, lo) < need) return 0.0;
+   if(CopyClose(g_symbol, PERIOD_M5, 1, need, cl) < need) return 0.0;
+   double sum = 0.0;
+   for(int i = 0; i < period; i++)
+     {
+      double tr = MathMax(hi[i] - lo[i],
+                 MathMax(MathAbs(hi[i] - cl[i + 1]),
+                         MathAbs(lo[i] - cl[i + 1])));
+      sum += tr;
+     }
+   return sum / period;
   }
 
 double CalcLots()
@@ -493,9 +511,7 @@ int OnInit()
    if(Period() != PERIOD_M5)
       PrintFormat("[optRaider-v7] WARNING — designed for M5 chart (current period=%d min)", Period());
 
-   g_atrHandle = iATR(g_symbol, PERIOD_M5, InpATRPeriod);
-   if(g_atrHandle == INVALID_HANDLE)
-     { Print("[optRaider-v7] iATR init failed"); return INIT_FAILED; }
+
 
    g_lastBarCount = Bars(g_symbol, PERIOD_M5);
    EventSetTimer(30);
@@ -510,8 +526,7 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    EventKillTimer();
-   if(g_atrHandle != INVALID_HANDLE)
-     { IndicatorRelease(g_atrHandle); g_atrHandle = INVALID_HANDLE; }
+
    Print("[optRaider-v7] Deinitialized");
   }
 
