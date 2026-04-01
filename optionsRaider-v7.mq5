@@ -1,17 +1,16 @@
 //+------------------------------------------------------------------+
 //| optionsRaider-v7.mq5                                             |
-//| V7 — Immediate Market Entry at Activation                        |
+//| V7 — Gravitational Pull (Closest-Strike + Proximity)            |
 //|                                                                  |
 //| Difference from base optionsRaider:                              |
-//|  • No engulfing pattern required.                                |
-//|  • At the moment a zone enters the activation window (or any     |
-//|    timer tick thereafter), opens a market position immediately   |
-//|    if and only if the current price is closer to this strike     |
-//|    than to the nearest strike in the opposite direction.         |
-//|  • If no opposite-direction zone exists, opens unconditionally.  |
-//|  • Rationale: proximity itself is the signal. Being near the     |
-//|    strike 150 min out means the institutional position is        |
-//|    already gravitating toward it. No candle confirmation needed. |
+//|  • Two conditions must both be true before an entry fires:       |
+//|    1. Price is within InpProximityATRs × ATR of this strike.     |
+//|       "above": ask in [strike − N×ATR, strike + 1×ATR]          |
+//|       "below": bid in [strike − 1×ATR, strike + N×ATR]          |
+//|    2. This strike is the closest active zone to current price    |
+//|       vs any zone in the opposite direction (gravitational pull). |
+//|       If no opposite zone exists, condition 2 is waived.         |
+//|  • Most selective variant — only trades the dominant near strike. |
 //|  • Only one zone is ever active at a time (PickZone selector).  |
 //|    Priority: open position > activated zone > closest to price.  |
 //|    SL hit ends the zone. Price trading through does not.         |
@@ -30,6 +29,7 @@ input int    InpLocalTZOffsetHours    = 0;     // Expiry-time UTC offset (CET=1,
 input int    InpATRPeriod             = 14;    // ATR period (M5 bars)
 input double InpSLATRMult             = 2.0;   // SL distance: N × ATR from strike
 input int    InpMaxSLPips             = 10;    // SL hard cap (pips)
+input double InpProximityATRs         = 3.0;   // Max distance from strike to enter (N × ATR)
 input int    InpActivationMins        = 150;   // Start watching N minutes before expiry
 input int    InpCloseMinsBeforeExpiry = 3;     // Close position N minutes before expiry
 input double InpLotSize               = 0.0;   // Lot size (0.0 = broker minimum)
@@ -304,11 +304,11 @@ void ClosePos(ulong ticket, const string why)
 bool OpenLong(OptionsZone &z)
   {
    double atr = GetATR();
-   if(atr <= 0.0) { Print("[optRaider-v7] OpenLong: ATR=0, skipping"); return false; }
-
    double ask    = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
    double pip    = PipSize();
-   double slDist = MathMin(atr * InpSLATRMult, InpMaxSLPips * pip);
+   // SL: min(2×ATR, MaxSLPips); falls back to MaxSLPips cap when ATR unavailable
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, InpMaxSLPips * pip)
+                               : InpMaxSLPips * pip;
    double sl     = NormalizeDouble(z.price - slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -341,11 +341,11 @@ bool OpenLong(OptionsZone &z)
 bool OpenShort(OptionsZone &z)
   {
    double atr = GetATR();
-   if(atr <= 0.0) { Print("[optRaider-v7] OpenShort: ATR=0, skipping"); return false; }
-
    double bid    = SymbolInfoDouble(g_symbol, SYMBOL_BID);
    double pip    = PipSize();
-   double slDist = MathMin(atr * InpSLATRMult, InpMaxSLPips * pip);
+   // SL: min(2×ATR, MaxSLPips); falls back to MaxSLPips cap when ATR unavailable
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, InpMaxSLPips * pip)
+                               : InpMaxSLPips * pip;
    double sl     = NormalizeDouble(z.price + slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -462,25 +462,42 @@ void EvaluateZone(OptionsZone &z)
       return;
      }
 
-   // ── 6. Entry: open immediately if price is closer to this strike  ─
-   //       than to the nearest opposite-direction strike.             ─
-   //       Check runs every 30 s until condition is met or zone ends. ─
+   // ── 6. Entry: gravitational pull — closest strike + proximity ────
+   // Two conditions must both be true:
+   // 1. Price is within InpProximityATRs × ATR of this strike.
+   //    "above" (long):  ask in [strike − N×ATR, strike + 1×ATR]
+   //    "below" (short): bid in [strike − 1×ATR, strike + N×ATR]
+   // 2. This strike is closer to current price than any opposite-direction
+   //    zone (gravitational dominance). Waived if no opposite zone exists.
+   // Together these guarantee we only trade the dominant, near strike
+   // and never open simultaneous long + short positions.
    if(atr <= 0.0) return;
-
-   if(IsCloserThanOpposite(z))
-     {
-      PrintFormat("[optRaider-v7] Price closer to %.5f than to opposite — opening %s (zone %s %d min left)",
-                  z.price,
-                  (z.direction == "above") ? "long" : "short",
-                  z.id, mLeft);
-      if(z.direction == "above") OpenLong(z);
-      else                       OpenShort(z);
-     }
+   double bid  = SymbolInfoDouble(g_symbol, SYMBOL_BID);
+   double ask  = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
+   double band = atr * InpProximityATRs;
+   bool   near;
+   if(z.direction == "above")
+      near = (ask >= z.price - band) && (ask <= z.price + atr);
    else
+      near = (bid <= z.price + band) && (bid >= z.price - atr);
+
+   if(!near)
      {
-      PrintFormat("[optRaider-v7] Waiting — price closer to opposite strike (zone %s %d min left)",
-                  z.id, mLeft);
+      PrintFormat("[optRaider-v7] Zone %s — price not within %.1f ATR of strike %.5f, waiting",
+                  z.id, InpProximityATRs, z.price);
+      return;
      }
+
+   if(!IsCloserThanOpposite(z))
+     {
+      PrintFormat("[optRaider-v7] Zone %s — price closer to opposite strike, waiting", z.id);
+      return;
+     }
+
+   PrintFormat("[optRaider-v7] Gravity + proximity confirmed — entering %s toward %.5f (zone %s %d min left)",
+               (z.direction == "above") ? "long" : "short", z.price, z.id, mLeft);
+   if(z.direction == "above") OpenLong(z);
+   else                       OpenShort(z);
   }
 
 //+------------------------------------------------------------------+

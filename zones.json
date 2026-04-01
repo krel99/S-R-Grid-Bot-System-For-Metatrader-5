@@ -1,1 +1,48 @@
-[]
+[
+  {
+    "id": "8e624b1e-6959-4f22-980d-c8b9dbc9f80a",
+    "symbol": "EURJPY",
+    "direction": "sell",
+    "strength": "regular",
+    "watchedOnly": false,
+    "kind": "point",
+    "price": 183.18,
+    "date": "2026-03-31",
+    "createdAt": "2026-03-31T10:26:40.964Z"
+  },
+  {
+    "id": "197b412b-518f-40ec-910f-8d6a2e9d270c",
+    "symbol": "EURJPY",
+    "direction": "sell",
+    "strength": "regular",
+    "watchedOnly": true,
+    "kind": "zone",
+    "from": 183.215,
+    "to": 183.225,
+    "date": "2026-03-31",
+    "createdAt": "2026-03-31T10:26:40.978Z"
+  },
+  {
+    "id": "cf2e7516-9ce4-4115-97ea-59982a51fcba",
+    "symbol": "EURJPY",
+    "direction": "buy",
+    "strength": "regular",
+    "watchedOnly": false,
+    "kind": "point",
+    "price": 183.04,
+    "date": "2026-03-31",
+    "createdAt": "2026-03-31T10:26:40.991Z"
+  },
+  {
+    "id": "a25c57b6-3138-4246-881d-4b42126e43c8",
+    "symbol": "EURJPY",
+    "direction": "buy",
+    "strength": "regular",
+    "watchedOnly": true,
+    "kind": "zone",
+    "from": 183.02,
+    "to": 183,
+    "date": "2026-03-31",
+    "createdAt": "2026-03-31T10:26:41.009Z"
+  }
+]

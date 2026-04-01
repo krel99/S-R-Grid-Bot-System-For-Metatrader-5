@@ -7,10 +7,12 @@
 //|    InpBaselineATRBars completed M5 bars.                         |
 //|  • Before every entry, ratio = currentATR / baselineATR.        |
 //|  • High-volatility day (ratio > InpHighVolThresh):               |
-//|      lots × InpHighVolLotMult, SL cap = InpHighVolSLPips         |
+//|      lots × InpHighVolLotMult, SL = InpHighVolSLPips,            |
+//|      proximity band = InpHighVolProxATRs × ATR (tight)           |
 //|  • Low-volatility day  (ratio < InpLowVolThresh):                |
-//|      lots × InpLowVolLotMult,  SL cap = InpLowVolSLPips         |
-//|  • Normal day: base lot size, InpMaxSLPips cap unchanged.        |
+//|      lots × InpLowVolLotMult, SL = InpLowVolSLPips,             |
+//|      proximity band = InpLowVolProxATRs × ATR (wide)             |
+//|  • Normal day: base lots, InpMaxSLPips, InpProximityATRs × ATR.  |
 //|  • Baseline refreshes every calendar day (UTC).                  |
 //|  • Only one zone is ever active at a time (PickZone selector).   |
 //|    Priority: open position > activated zone > closest to price.  |
@@ -37,7 +39,9 @@ input double InpHighVolThresh         = 1.4;   // currentATR/baseline ratio → 
 input double InpLowVolThresh          = 0.7;   // currentATR/baseline ratio → low-vol regime
 input double InpHighVolLotMult        = 0.6;   // Lot multiplier in high-vol regime
 input double InpLowVolLotMult         = 1.4;   // Lot multiplier in low-vol regime
-input double InpProximityATRs         = 1.0;   // Entry band: N × ATR from strike
+input double InpProximityATRs         = 3.0;   // Entry band — normal vol (ATR multiplier)
+input double InpHighVolProxATRs       = 1.5;   // Entry band — high volatility (ATR multiplier, tighter)
+input double InpLowVolProxATRs        = 5.0;   // Entry band — low volatility (ATR multiplier, wider)
 input int    InpActivationMins        = 150;   // Start watching N minutes before expiry
 input int    InpCloseMinsBeforeExpiry = 3;     // Close position N minutes before expiry
 input double InpLotSize               = 0.0;   // Base lot size (0.0 = broker minimum)
@@ -167,6 +171,17 @@ int ActiveSLPips()
    if(regime == 2) return InpHighVolSLPips;
    if(regime == 0) return InpLowVolSLPips;
    return InpMaxSLPips;
+  }
+
+// Regime-adjusted proximity band multiplier
+// High-vol → tighter band (don't chase wide swings far from strike)
+// Low-vol  → wider band  (ATR is small, need more room to qualify)
+double ActiveProxATRs()
+  {
+   int regime = VolRegime();
+   if(regime == 2) return InpHighVolProxATRs;
+   if(regime == 0) return InpLowVolProxATRs;
+   return InpProximityATRs;
   }
 
 int HHMMtoMins(const string t)
@@ -371,12 +386,11 @@ void ClosePos(ulong ticket, const string why)
 bool OpenLong(OptionsZone &z)
   {
    double atr    = GetATR();
-   if(atr <= 0.0) { Print("[optRaider-v6] OpenLong: ATR=0, skipping"); return false; }
-
    double ask    = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
    double pip    = PipSize();
    double slCap  = ActiveSLPips() * pip;
-   double slDist = MathMin(atr * InpSLATRMult, slCap);
+   // Falls back to the pip cap when ATR is unavailable (e.g. fresh chart)
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, slCap) : slCap;
    double sl     = NormalizeDouble(z.price - slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -410,12 +424,11 @@ bool OpenLong(OptionsZone &z)
 bool OpenShort(OptionsZone &z)
   {
    double atr    = GetATR();
-   if(atr <= 0.0) { Print("[optRaider-v6] OpenShort: ATR=0, skipping"); return false; }
-
    double bid    = SymbolInfoDouble(g_symbol, SYMBOL_BID);
    double pip    = PipSize();
    double slCap  = ActiveSLPips() * pip;
-   double slDist = MathMin(atr * InpSLATRMult, slCap);
+   // Falls back to the pip cap when ATR is unavailable (e.g. fresh chart)
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, slCap) : slCap;
    double sl     = NormalizeDouble(z.price + slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -540,30 +553,31 @@ void EvaluateZone(OptionsZone &z)
       return;
      }
 
-   // ── 6. Entry: proximity + engulfing with regime-adjusted parameters ──
+   // ── 6. Entry: regime-adjusted proximity check then fire ──────────
+   // Proximity band is vol-regime-adjusted via ActiveProxATRs():
+   //   High-vol → InpHighVolProxATRs (tight — avoid chasing wide swings)
+   //   Low-vol  → InpLowVolProxATRs  (wide  — ATR is small, need more room)
+   //   Normal   → InpProximityATRs
+   // "above" (long):  ask ∈ [strike − N×ATR, strike + 1×ATR]
+   // "below" (short): bid ∈ [strike − 1×ATR, strike + N×ATR]
+   // Vol-regime also governs lot size and SL cap (logged at activation).
+   // PickZone ensures only one zone is evaluated — no simultaneous trades.
    if(atr <= 0.0) return;
-   double band = atr * InpProximityATRs;
-
+   double proxMult = ActiveProxATRs();
+   double band     = atr * proxMult;
    bool near;
    if(z.direction == "above")
-      near = (bid >= z.price - pip * 3.0) && (bid <= z.price + band);
+      near = (ask >= z.price - band) && (ask <= z.price + atr);
    else
-      near = (ask <= z.price + pip * 3.0) && (ask >= z.price - band);
+      near = (bid <= z.price + band) && (bid >= z.price - atr);
 
    if(!near) return;
 
-   if(z.direction == "above" && BullishEngulfingForming())
-     {
-      PrintFormat("[optRaider-v6] Bullish engulfing near %.5f — long (zone %s %d min left)",
-                  z.price, z.id, mLeft);
-      OpenLong(z);
-     }
-   else if(z.direction == "below" && BearishEngulfingForming())
-     {
-      PrintFormat("[optRaider-v6] Bearish engulfing near %.5f — short (zone %s %d min left)",
-                  z.price, z.id, mLeft);
-      OpenShort(z);
-     }
+   PrintFormat("[optRaider-v6] Price within %.1fx ATR of strike %.5f (regime %d) — entering %s (zone %s %d min left)",
+               proxMult, z.price, VolRegime(),
+               (z.direction == "above") ? "long" : "short", z.id, mLeft);
+   if(z.direction == "above") OpenLong(z);
+   else                       OpenShort(z);
   }
 
 //+------------------------------------------------------------------+

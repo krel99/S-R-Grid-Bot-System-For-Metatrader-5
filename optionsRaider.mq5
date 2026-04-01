@@ -5,10 +5,12 @@
 //| Strategy:                                                        |
 //|  • Polls GET /options/:symbol for "above" / "below" zones        |
 //|  • Activates InpActivationMins (150) minutes before expiry       |
-//|  • "above" → long  when bid ≤ strike + 1×ATR + engulfing        |
-//|  • "below" → short when ask ≥ strike − 1×ATR + engulfing        |
-//|  • Engulfing confirmed in real-time (no bar-close required)      |
-//|  • SL = min(2×ATR, InpMaxSLPips pips) below/above the strike    |
+//|  • "above" → long  when ask ∈ [strike − N×ATR, strike + 1×ATR]  |
+//|  • "below" → short when bid ∈ [strike − 1×ATR, strike + N×ATR]  |
+//|    N = InpProximityATRs (default 3).  Prevents trading when price |
+//|    is far from the strike; PickZone ensures only one zone trades  |
+//|    at a time, blocking simultaneous long + short.                 |
+//|  • SL = min(2×ATR, InpMaxSLPips pips); falls back to cap if ATR=0|
 //|  • No TP — closed InpCloseMinsBeforeExpiry min before expiry     |
 //|  • POSTs a statistics report to /options-reports on every M5 bar |
 //|                                                                  |
@@ -28,7 +30,7 @@ input int    InpLocalTZOffsetHours    = 0;     // Expiry-time UTC offset (CET=1,
 input int    InpATRPeriod             = 14;    // ATR period (M5 bars)
 input double InpSLATRMult             = 2.0;   // SL distance: N × ATR from strike
 input int    InpMaxSLPips             = 10;    // SL hard cap (pips)
-input double InpProximityATRs         = 1.0;   // Entry band: N × ATR from strike
+input double InpProximityATRs         = 3.0;   // Entry band: N × ATR from strike (each side)
 input int    InpActivationMins        = 150;   // Start watching N minutes before expiry
 input int    InpCloseMinsBeforeExpiry = 3;     // Close position N minutes before expiry
 input double InpLotSize               = 0.0;   // Lot size (0.0 = broker minimum)
@@ -397,13 +399,12 @@ void ClosePos(ulong ticket, const string why)
 
 bool OpenLong(OptionsZone &z)
   {
-   double atr = GetATR();
-   if(atr <= 0.0) { Print("[optRaider] OpenLong: ATR=0, skipping"); return false; }
-
+   double atr    = GetATR();
    double ask    = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
    double pip    = PipSize();
-   // SL sits below the strike level by min(2×ATR, MaxSLPips)
-   double slDist = MathMin(atr * InpSLATRMult, InpMaxSLPips * pip);
+   // SL: min(2×ATR, MaxSLPips); falls back to MaxSLPips cap when ATR unavailable
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, InpMaxSLPips * pip)
+                               : InpMaxSLPips * pip;
    double sl     = NormalizeDouble(z.price - slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -435,13 +436,12 @@ bool OpenLong(OptionsZone &z)
 
 bool OpenShort(OptionsZone &z)
   {
-   double atr = GetATR();
-   if(atr <= 0.0) { Print("[optRaider] OpenShort: ATR=0, skipping"); return false; }
-
+   double atr    = GetATR();
    double bid    = SymbolInfoDouble(g_symbol, SYMBOL_BID);
    double pip    = PipSize();
-   // SL sits above the strike level by min(2×ATR, MaxSLPips)
-   double slDist = MathMin(atr * InpSLATRMult, InpMaxSLPips * pip);
+   // SL: min(2×ATR, MaxSLPips); falls back to MaxSLPips cap when ATR unavailable
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, InpMaxSLPips * pip)
+                               : InpMaxSLPips * pip;
    double sl     = NormalizeDouble(z.price + slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -587,34 +587,29 @@ void EvaluateZone(OptionsZone &z)
       return;   // never re-enter the same expiry zone
      }
 
-   // ── 7. Entry: proximity + engulfing ──────────────────────────────
+   // ── 7. Entry: proximity check then fire ──────────────────────────
+   // Price must be within InpProximityATRs × ATR of the strike.
+   // "above" (long):  ask ∈ [strike − N×ATR,  strike + 1×ATR]
+   // "below" (short): bid ∈ [strike − 1×ATR,  strike + N×ATR]
+   // The 1×ATR buffer on the far side allows entry when price has
+   // just drifted slightly past the level (institution pinning).
+   // PickZone guarantees only one zone is evaluated at a time, so
+   // simultaneous long + short is structurally impossible.
    if(atr <= 0.0) return;
    double band = atr * InpProximityATRs;
-
-   // "above" (long):  bid must be within [strike − 3 pip, strike + 1 ATR]
-   // "below" (short): ask must be within [strike − 1 ATR, strike + 3 pip]
-   // The 3-pip buffer below/above the strike allows entry when price is
-   // just touching the level from the correct side.
    bool near;
    if(z.direction == "above")
-      near = (bid >= z.price - pip * 3.0) && (bid <= z.price + band);
+      near = (ask >= z.price - band) && (ask <= z.price + atr);
    else
-      near = (ask <= z.price + pip * 3.0) && (ask >= z.price - band);
+      near = (bid <= z.price + band) && (bid >= z.price - atr);
 
    if(!near) return;
 
-   if(z.direction == "above" && BullishEngulfingForming())
-     {
-      PrintFormat("[optRaider] Bullish engulfing forming near %.5f — long (zone %s %d min left)",
-                  z.price, z.id, mLeft);
-      OpenLong(z);
-     }
-   else if(z.direction == "below" && BearishEngulfingForming())
-     {
-      PrintFormat("[optRaider] Bearish engulfing forming near %.5f — short (zone %s %d min left)",
-                  z.price, z.id, mLeft);
-      OpenShort(z);
-     }
+   PrintFormat("[optRaider] Price within %.1f ATR of strike %.5f — entering %s (zone %s %d min left)",
+               InpProximityATRs, z.price,
+               (z.direction == "above") ? "long" : "short", z.id, mLeft);
+   if(z.direction == "above") OpenLong(z);
+   else                       OpenShort(z);
   }
 
 //+------------------------------------------------------------------+

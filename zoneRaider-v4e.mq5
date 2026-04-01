@@ -18,15 +18,13 @@ input bool   InpAllowLong         = true;                     // Allow buy entri
 input bool   InpAllowShort        = true;                     // Allow sell entries
 input int    InpSLPips            = 15;                       // Initial stop loss (pips)
 input int    InpTPPips            = 20;                       // Take profit (pips)
-input double InpMaxDailyRisk      = 500.0;                    // Total daily risk budget ($)
-input int    InpMaxPositions      = 6;                        // Max simultaneous positions + pending orders
-input int    InpPollMinutes       = 10;                       // Poll interval before NY open (minutes)
-input int    InpNYOpenHour        = 13;                       // NY open hour (UTC)
+input double InpMaxDailyRisk      = 120.0;                    // Total daily risk budget ($)
+input int    InpPollMinutes       = 20;                       // Poll interval (minutes)
+input int    InpNYOpenHour        = 13;                       // NY open hour (UTC) — warning deadline only
 input int    InpNYOpenMinute      = 30;                       // NY open minute (UTC)
 input int    InpEODHour           = 21;                       // EOD close hour (UTC)
 input bool   InpSkipWeekends      = true;                     // Skip Sat/Sun
 input int    InpEntryBuffer       = 0;                        // Pips past zone boundary for limit entry
-input bool   InpSkipWatchedOnly   = true;                     // Skip watchedOnly zones
 input int    InpSwingLookback     = 10;                       // M5 bars to search for swing point
 input int    InpMinProfitToTrail  = 10;                       // Pips in profit before trail activates
 input int    InpSwingBuffer       = 2;                        // Buffer pips beyond swing point
@@ -134,12 +132,17 @@ void OnTimer()
    //--- Orders already placed — nothing left to do until next day
    if(g_ordersPlaced) return;
 
-   //--- Poll on interval (pre-NY preload + post-NY placement)
-   if(TimeCurrent() - g_lastPoll < InpPollMinutes * 60) return;
-   PollServer();
+   //--- Poll on interval; place orders immediately when zones are received
+   if(!g_zonesLoaded)
+     {
+      if(TimeCurrent() - g_lastPoll < InpPollMinutes * 60) return;
+      if(IsAfterNYOpen(dt))
+         Print("ZoneRaider v4e: WARNING — past NY open, zones not yet loaded");
+      PollServer();
+     }
 
-   //--- Place orders only after NY open
-   if(IsAfterNYOpen(dt) && g_zonesLoaded && g_zoneCount > 0)
+   //--- Place immediately once zones are available
+   if(g_zonesLoaded && g_zoneCount > 0)
      {
       PlaceAllOrders();
       g_ordersPlaced = true;
@@ -446,6 +449,42 @@ bool ParseZoneObject(const string obj, Zone &z)
   }
 
 //+------------------------------------------------------------------+
+//| True if our magic already has a position or pending order at    |
+//| this direction and price level (±1.5 pip tolerance).            |
+//+------------------------------------------------------------------+
+bool HasOpenAtLevel(const string direction, const double price)
+  {
+   double pip       = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 10.0;
+   double tolerance = pip * 1.5;
+
+   for(int i = 0; i < PositionsTotal(); i++)
+     {
+      ulong t = PositionGetTicket(i);
+      if(!PositionSelectByTicket(t))                    continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != g_magic)  continue;
+      string posDir = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? "buy" : "sell";
+      if(posDir != direction)                            continue;
+      if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - price) <= tolerance) return true;
+     }
+
+   for(int i = 0; i < OrdersTotal(); i++)
+     {
+      ulong t = OrderGetTicket(i);
+      if(!OrderSelect(t))                          continue;
+      if(OrderGetString(ORDER_SYMBOL) != _Symbol)  continue;
+      if(OrderGetInteger(ORDER_MAGIC) != g_magic)   continue;
+      ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      bool isLong   = (ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_BUY_STOP || ot == ORDER_TYPE_BUY);
+      string orderDir = isLong ? "buy" : "sell";
+      if(orderDir != direction)                     continue;
+      if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - price) <= tolerance) return true;
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //| Place all limit orders with weighted budget allocation          |
 //+------------------------------------------------------------------+
 void PlaceAllOrders()
@@ -454,10 +493,7 @@ void PlaceAllOrders()
    double slDist = InpSLPips * pip;
 
    double minRisk = CalcMinRiskPerPosition(slDist);
-   if(minRisk <= 0.0) { Print("ZoneRaider v4: Cannot calculate min risk"); return; }
-
-   int slotsLeft = InpMaxPositions - CountOurPositions() - CountOurPendingOrders();
-   if(slotsLeft <= 0) { Print("ZoneRaider v4: Max positions/orders reached"); return; }
+   if(minRisk <= 0.0) { Print("ZoneRaider v4e: Cannot calculate min risk"); return; }
 
    double mid = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) +
                  SymbolInfoDouble(_Symbol, SYMBOL_BID)) / 2.0;
@@ -468,7 +504,6 @@ void PlaceAllOrders()
 
    for(int i = 0; i < g_zoneCount; i++)
      {
-      if(InpSkipWatchedOnly && g_zones[i].watchedOnly)     continue;
       if(g_zones[i].direction == "buy"  && !InpAllowLong)  continue;
       if(g_zones[i].direction == "sell" && !InpAllowShort) continue;
 
@@ -493,7 +528,7 @@ void PlaceAllOrders()
             MathAbs(g_zones[sellIdx[j+1]].entryPrice - mid))
            { int t = sellIdx[j]; sellIdx[j] = sellIdx[j+1]; sellIdx[j+1] = t; }
 
-   //--- Build ordered list: strong first (w=1.0), then interleaved regular (w=0.9, 0.8 …)
+   //--- Build raw ordered list: strong first (w=1.0), then interleaved regular (w=0.9 …)
    int ordered[]; double weights[]; int oCount = 0;
    ArrayResize(ordered, 0); ArrayResize(weights, 0);
 
@@ -519,24 +554,55 @@ void PlaceAllOrders()
         }
      }
 
-   if(oCount == 0) { Print("ZoneRaider v4: No qualifying zones"); return; }
-   if(oCount > slotsLeft) oCount = slotsLeft;
+   if(oCount == 0) { Print("ZoneRaider v4e: No qualifying zones"); return; }
 
-   //--- Drop lowest-priority tail if budget too tight
-   while(oCount > 0 && minRisk * oCount > InpMaxDailyRisk)
-     { Print("ZoneRaider v4e: Dropping lowest-priority zone (budget)"); oCount--; }
-  if(oCount == 0) { Print("ZoneRaider v4e: Budget too small"); return; }
-
-   double weightSum = 0.0;
-   for(int q = 0; q < oCount; q++) weightSum += weights[q];
-
-   Print("ZoneRaider v4e: Placing ", oCount, " order(s)  SL=", InpSLPips,
-         "p  TP=", InpTPPips, "p  Budget=$", InpMaxDailyRisk);
+   //--- Deduplicate: one order per direction+price level; skip already-placed IDs
+   //    and levels already covered by an open position or pending order.
+   int    filtered[]; double filteredW[]; int fCount = 0;
+   string batchLevels[]; int blCount = 0;
 
    for(int q = 0; q < oCount; q++)
      {
-      double share = (weights[q] / weightSum) * InpMaxDailyRisk;
-      PlaceLimitOrder(ordered[q], slDist, share);
+      Zone z = g_zones[ordered[q]];
+
+      bool alreadyPlaced = false;
+      for(int k = 0; k < g_placedCount; k++)
+        { if(g_placedIds[k] == z.id) { alreadyPlaced = true; break; } }
+      if(alreadyPlaced) { Print("ZoneRaider v4e: Zone already placed — skipped: ", z.id); continue; }
+
+      long   priceKey  = (long)MathRound(z.entryPrice / pip);
+      string levelKey  = z.direction + "|" + IntegerToString(priceKey);
+      bool   duplicate = false;
+      for(int k = 0; k < blCount; k++)
+        { if(batchLevels[k] == levelKey) { duplicate = true; break; } }
+      if(duplicate) { Print("ZoneRaider v4e: Duplicate price level skipped: ", levelKey); continue; }
+
+      if(HasOpenAtLevel(z.direction, z.entryPrice))
+        { Print("ZoneRaider v4e: Level already covered: ", z.direction, " @ ", DoubleToString(z.entryPrice, _Digits)); continue; }
+
+      ArrayResize(filtered,     fCount+1); ArrayResize(filteredW,   fCount+1);
+      ArrayResize(batchLevels, blCount+1);
+      filtered[fCount] = ordered[q]; filteredW[fCount] = weights[q]; fCount++;
+      batchLevels[blCount++] = levelKey;
+     }
+
+   if(fCount == 0) { Print("ZoneRaider v4e: No unique uncovered zones to place"); return; }
+
+   //--- Drop lowest-priority tail if total risk exceeds daily budget
+   while(fCount > 0 && minRisk * fCount > InpMaxDailyRisk)
+     { Print("ZoneRaider v4e: Dropping lowest-priority zone (budget)"); fCount--; }
+   if(fCount == 0) { Print("ZoneRaider v4e: Budget too small"); return; }
+
+   double weightSum = 0.0;
+   for(int q = 0; q < fCount; q++) weightSum += filteredW[q];
+
+   Print("ZoneRaider v4e: Placing ", fCount, " order(s)  SL=", InpSLPips,
+         "p  TP=", InpTPPips, "p  Budget=$", InpMaxDailyRisk);
+
+   for(int q = 0; q < fCount; q++)
+     {
+      double share = (filteredW[q] / weightSum) * InpMaxDailyRisk;
+      PlaceLimitOrder(filtered[q], slDist, share);
      }
   }
 
@@ -546,8 +612,16 @@ void PlaceAllOrders()
 void PlaceLimitOrder(const int idx, const double slDist, const double budget)
   {
    Zone   z    = g_zones[idx];
-   double pip  = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 10.0;
    double entry = NormalizeDouble(z.entryPrice, _Digits);
+
+   //--- Final guard: never place if this level is already covered
+   if(HasOpenAtLevel(z.direction, entry))
+     {
+      Print("ZoneRaider v4e: PlaceLimitOrder skip — already covered: ",
+            z.direction, " @ ", DoubleToString(entry, _Digits));
+      return;
+     }
+   double pip  = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 10.0;
 
    double sl = (z.direction == "buy")
                 ? NormalizeDouble(entry - slDist, _Digits)
@@ -659,40 +733,6 @@ void CloseByTicket(ulong ticket)
      { req.type = ORDER_TYPE_BUY;  req.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK); }
    if(!OrderSend(req, res))
       Print("ZoneRaider v4e: CloseByTicket failed #", ticket, "  code=", res.retcode);
-  }
-
-//+------------------------------------------------------------------+
-//| Count our open positions on this symbol                        |
-//+------------------------------------------------------------------+
-int CountOurPositions()
-  {
-   int count = 0;
-   for(int i = 0; i < PositionsTotal(); i++)
-     {
-      ulong t = PositionGetTicket(i);
-      if(!PositionSelectByTicket(t))                    continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if(PositionGetInteger(POSITION_MAGIC) != g_magic)  continue;
-      count++;
-     }
-   return count;
-  }
-
-//+------------------------------------------------------------------+
-//| Count our pending orders on this symbol                        |
-//+------------------------------------------------------------------+
-int CountOurPendingOrders()
-  {
-   int count = 0;
-   for(int i = 0; i < OrdersTotal(); i++)
-     {
-      ulong t = OrderGetTicket(i);
-      if(!OrderSelect(t))                          continue;
-      if(OrderGetString(ORDER_SYMBOL) != _Symbol)  continue;
-      if(OrderGetInteger(ORDER_MAGIC) != g_magic)   continue;
-      count++;
-     }
-   return count;
   }
 
 //+------------------------------------------------------------------+

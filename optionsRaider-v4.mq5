@@ -1,18 +1,17 @@
 //+------------------------------------------------------------------+
 //| optionsRaider-v4.mq5                                             |
-//| V4 — Strike-Touch Prerequisite Filter                            |
+//| V4 — Approach-Side Entry                                         |
 //|                                                                  |
 //| Difference from base optionsRaider:                              |
-//|  • Engulfing entry is only armed AFTER price has touched the     |
-//|    strike level (within InpTouchPips) at least once.            |
-//|    This confirms institutional defence is active before any      |
-//|    capital is committed.                                         |
+//|  • Entry fires only when price is strictly on the APPROACH side  |
+//|    of the strike AND within InpProximityATRs × ATR of it:        |
+//|    ask must be BELOW the strike for "above" zones; bid must be   |
+//|    ABOVE the strike for "below" zones.                           |
+//|    If price has already crossed through the level the trade is   |
+//|    skipped — the institutional pin may have already played out.  |
 //|  • Only one zone is ever active at a time (PickZone selector).  |
 //|    Priority: open position > activated zone > closest to price.  |
-//|    An SL hit closes the zone (no further trades). Price trading  |
-//|    through the strike before the window does not remove it.      |
-//|  • No server reporting — statistics are sent by the base EA      |
-//|    only.                                                         |
+//|    SL hit ends the zone. No server reporting.                    |
 //|                                                                  |
 //| Magic: 20260402                                                  |
 //+------------------------------------------------------------------+
@@ -27,8 +26,7 @@ input int    InpLocalTZOffsetHours    = 0;     // Expiry-time UTC offset (CET=1,
 input int    InpATRPeriod             = 14;    // ATR period (M5 bars)
 input double InpSLATRMult             = 2.0;   // SL distance: N × ATR from strike
 input int    InpMaxSLPips             = 10;    // SL hard cap (pips)
-input double InpProximityATRs         = 1.0;   // Entry band: N × ATR from strike
-input int    InpTouchPips             = 5;     // Pips from strike to qualify as a touch
+input double InpProximityATRs         = 3.0;   // Entry band: N × ATR from strike (approach side)
 input int    InpActivationMins        = 150;   // Start watching N minutes before expiry
 input int    InpCloseMinsBeforeExpiry = 3;     // Close position N minutes before expiry
 input double InpLotSize               = 0.0;   // Lot size (0.0 = broker minimum)
@@ -43,7 +41,7 @@ struct OptionsZone
    string   expiryTime;        // "HH:MM" in operator local time
    string   date;              // "YYYY-MM-DD"
    bool     activated;         // entered InpActivationMins window
-   bool     levelTouched;      // price came within InpTouchPips of strike
+
    bool     tradeFired;        // entry order sent
    bool     closed;            // zone lifecycle complete for this session
    ulong    ticket;            // position ticket (0 until trade placed)
@@ -219,7 +217,7 @@ void PollZones()
       z.expiryTime   = ztm;
       z.date         = zdt;
       z.activated    = false;
-      z.levelTouched = false;
+
       z.tradeFired   = false;
       z.closed       = false;
       z.ticket       = 0;
@@ -229,7 +227,7 @@ void PollZones()
          if(prev[i].id == zid)
            {
             z.activated    = prev[i].activated;
-            z.levelTouched = prev[i].levelTouched;
+
             z.tradeFired   = prev[i].tradeFired;
             z.closed       = prev[i].closed;
             z.ticket       = prev[i].ticket;
@@ -301,12 +299,12 @@ void ClosePos(ulong ticket, const string why)
 
 bool OpenLong(OptionsZone &z)
   {
-   double atr = GetATR();
-   if(atr <= 0.0) { Print("[optRaider-v4] OpenLong: ATR=0, skipping"); return false; }
-
+   double atr    = GetATR();
    double ask    = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
    double pip    = PipSize();
-   double slDist = MathMin(atr * InpSLATRMult, InpMaxSLPips * pip);
+   // SL: min(2×ATR, MaxSLPips); falls back to MaxSLPips cap when ATR is unavailable
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, InpMaxSLPips * pip)
+                               : InpMaxSLPips * pip;
    double sl     = NormalizeDouble(z.price - slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -338,12 +336,12 @@ bool OpenLong(OptionsZone &z)
 
 bool OpenShort(OptionsZone &z)
   {
-   double atr = GetATR();
-   if(atr <= 0.0) { Print("[optRaider-v4] OpenShort: ATR=0, skipping"); return false; }
-
+   double atr    = GetATR();
    double bid    = SymbolInfoDouble(g_symbol, SYMBOL_BID);
    double pip    = PipSize();
-   double slDist = MathMin(atr * InpSLATRMult, InpMaxSLPips * pip);
+   // SL: min(2×ATR, MaxSLPips); falls back to MaxSLPips cap when ATR is unavailable
+   double slDist = (atr > 0.0) ? MathMin(atr * InpSLATRMult, InpMaxSLPips * pip)
+                               : InpMaxSLPips * pip;
    double sl     = NormalizeDouble(z.price + slDist,
                                    (int)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
    double lots   = CalcLots();
@@ -463,46 +461,32 @@ void EvaluateZone(OptionsZone &z)
       return;
      }
 
-   // ── 6. Touch detection ───────────────────────────────────────────
-   // Arm the level once price comes within InpTouchPips of the strike.
-   // Without this touch, no entry is attempted even if engulfing forms.
-   if(!z.levelTouched)
-     {
-      double touchDist = InpTouchPips * pip;
-      if(MathAbs(bid - z.price) <= touchDist || MathAbs(ask - z.price) <= touchDist)
-        {
-         z.levelTouched = true;
-         PrintFormat("[optRaider-v4] Level %.5f touched — engulfing now armed (zone %s)",
-                     z.price, z.id);
-        }
-      else
-         return;   // level not yet touched, skip entry check
-     }
-
-   // ── 7. Entry: proximity + engulfing (only if level was touched) ──
+   // ── 6. Entry: strict approach-side proximity ─────────────────────
+   // V4 only enters when price is strictly on the APPROACH side of the
+   // strike and within InpProximityATRs × ATR of it.
+   // "above" (long):  ask must be BELOW the strike (within N×ATR)
+   // "below" (short): bid must be ABOVE the strike (within N×ATR)
+   // If price has already crossed through the strike the entry is
+   // skipped — the institutional pin may have already played out.
+   // PickZone ensures only one zone is evaluated — no simultaneous trades.
    if(atr <= 0.0) return;
    double band = atr * InpProximityATRs;
-
    bool near;
    if(z.direction == "above")
-      near = (bid >= z.price - pip * 3.0) && (bid <= z.price + band);
+      near = (ask < z.price) && ((z.price - ask) <= band);   // strictly below, approaching up
    else
-      near = (ask <= z.price + pip * 3.0) && (ask >= z.price - band);
+      near = (bid > z.price) && ((bid - z.price) <= band);   // strictly above, approaching down
 
    if(!near) return;
 
-   if(z.direction == "above" && BullishEngulfingForming())
-     {
-      PrintFormat("[optRaider-v4] Touched + bullish engulfing near %.5f — long (zone %s %d min left)",
-                  z.price, z.id, mLeft);
-      OpenLong(z);
-     }
-   else if(z.direction == "below" && BearishEngulfingForming())
-     {
-      PrintFormat("[optRaider-v4] Touched + bearish engulfing near %.5f — short (zone %s %d min left)",
-                  z.price, z.id, mLeft);
-      OpenShort(z);
-     }
+   PrintFormat("[optRaider-v4] Price approaching strike %.5f from %s (within %.1f ATR) — %s (zone %s %d min left)",
+               z.price,
+               (z.direction == "above") ? "below" : "above",
+               InpProximityATRs,
+               (z.direction == "above") ? "long" : "short",
+               z.id, mLeft);
+   if(z.direction == "above") OpenLong(z);
+   else                       OpenShort(z);
   }
 
 //+------------------------------------------------------------------+
@@ -516,11 +500,10 @@ void OnNewBar()
    int mLeft = MinsLeft(g_zones[idx]);
    if(!g_zones[idx].activated || mLeft < -10 || mLeft > InpActivationMins) return;
 
-   PrintFormat("[optRaider-v4] Bar update — zone %s dir=%s touched=%s fired=%s minsLeft=%d",
+   PrintFormat("[optRaider-v4] Bar update — zone %s dir=%s fired=%s minsLeft=%d",
                g_zones[idx].id,
                g_zones[idx].direction,
-               g_zones[idx].levelTouched ? "YES" : "NO",
-               g_zones[idx].tradeFired   ? "YES" : "NO",
+               g_zones[idx].tradeFired ? "YES" : "NO",
                mLeft);
   }
 
@@ -540,10 +523,10 @@ int OnInit()
    EventSetTimer(30);
    PollZones();
 
-   PrintFormat("[optRaider-v4] Ready — symbol=%s magic=%d TZ_offset=%dh lot=%.2f touch=%d pip",
+   PrintFormat("[optRaider-v4] Ready — symbol=%s magic=%d TZ_offset=%dh lot=%.2f proxATRs=%.1f",
                g_symbol, g_magic, InpLocalTZOffsetHours,
                (InpLotSize > 0.0) ? InpLotSize : SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN),
-               InpTouchPips);
+               InpProximityATRs);
    return INIT_SUCCEEDED;
   }
 
