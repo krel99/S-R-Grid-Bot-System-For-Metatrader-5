@@ -112,17 +112,16 @@ void OnTimer()
    //--- Orders already placed — nothing left to do until next day
    if(g_ordersPlaced) return;
 
-   //--- Poll on interval; place orders immediately when zones are received
+   //--- Poll only until zones are loaded for today; retry on interval if the attempt failed
    if(!g_zonesLoaded)
      {
       if(TimeCurrent() - g_lastPoll < InpPollMinutes * 60) return;
-      if(IsAfterNYOpen(dt))
-         Print("ZoneRaider v4b: WARNING — past NY open, zones not yet loaded");
+
       PollServer();
      }
 
-   //--- Place immediately once zones are available
-   if(g_zonesLoaded && g_zoneCount > 0)
+   //--- Place orders only after NY open
+   if(IsAfterNYOpen(dt) && g_zonesLoaded && g_zoneCount > 0)
      {
       PlaceAllOrders();
       g_ordersPlaced = true;
