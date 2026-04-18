@@ -17,7 +17,7 @@ input bool   InpAllowLong      = true;                     // Allow buy entries
 input bool   InpAllowShort     = true;                     // Allow sell entries
 input int    InpATRPeriod      = 96;                       // ATR period (96 = 8h on M5)
 input double InpATRMultiplier  = 1.5;                      // ATR multiplier for initial SL
-input double InpMaxDailyRisk   = 500.0;                    // Total daily risk budget ($)
+input double InpMaxDailyRisk   = 100.0;                    // Total daily risk budget ($)
 input int    InpMaxPositions   = 6;                        // Max simultaneous positions
 input int    InpPollMinutes    = 10;                       // Poll interval (minutes)
 input int    InpEODHour        = 21;                       // EOD hour — closes all (UTC)
