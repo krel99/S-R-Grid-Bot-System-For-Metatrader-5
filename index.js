@@ -15,35 +15,39 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// A missing, empty, invalid or non-list file (e.g. "{}") reads as an empty list.
+function readJsonArray(file) {
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
 function readZones() {
-  return JSON.parse(fs.readFileSync(ZONES_FILE, "utf8"));
+  return readJsonArray(ZONES_FILE);
 }
 function writeZones(z) {
   fs.writeFileSync(ZONES_FILE, JSON.stringify(z, null, 2));
 }
 
 function readReports() {
-  if (!fs.existsSync(REPORTS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(REPORTS_FILE, "utf8"));
+  return readJsonArray(REPORTS_FILE);
 }
 function writeReports(r) {
   fs.writeFileSync(REPORTS_FILE, JSON.stringify(r, null, 2));
 }
 
 function readEvents() {
-  try {
-    return JSON.parse(fs.readFileSync(EVENTS_FILE, "utf8"));
-  } catch {
-    return [];
-  }
+  return readJsonArray(EVENTS_FILE);
 }
 function writeEvents(e) {
   fs.writeFileSync(EVENTS_FILE, JSON.stringify(e, null, 2));
 }
 
 function readOptionsReports() {
-  if (!fs.existsSync(OPTIONS_REPORTS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(OPTIONS_REPORTS_FILE, "utf8"));
+  return readJsonArray(OPTIONS_REPORTS_FILE);
 }
 function writeOptionsReports(r) {
   fs.writeFileSync(OPTIONS_REPORTS_FILE, JSON.stringify(r, null, 2));
