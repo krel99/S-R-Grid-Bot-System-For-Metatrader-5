@@ -302,8 +302,11 @@ void PollOptions()
   }
 
 //+------------------------------------------------------------------+
-//| Poll both endpoints once. Sets g_loaded when anything is found,  |
-//| which halts further polling until the next DailyReset.           |
+//| Poll both endpoints once. Sets g_loaded=true only when at least  |
+//| one non-NWOG (zone or option) level is found, which halts further |
+//| polling until the next DailyReset. NWOG levels alone never halt  |
+//| polling -- they are re-fetched fresh each day and alerts fire     |
+//| immediately; regular levels must still be polled for daily.      |
 //+------------------------------------------------------------------+
 void PollAll()
   {
@@ -311,10 +314,18 @@ void PollAll()
    ArrayResize(g_levels,0); g_levelCount=0;
    PollZones();
    PollOptions();
-   g_loaded = (g_levelCount > 0);
+
+   // NWOG levels are valid all week and must never block the daily poll.
+   // Only halt polling once at least one non-NWOG level (zone or option) is loaded.
+   int nonNwog=0;
+   for(int i=0;i<g_levelCount;i++)
+      if(g_levels[i].source!="nwog") nonNwog++;
+   g_loaded = (nonNwog > 0);
+
    if(InpVerbose)
-      PrintFormat("[ZoneAlerts] poll complete -- %d level(s); polling %s",
-                  g_levelCount, g_loaded ? "HALTED until next UTC day" : "will retry next interval");
+      PrintFormat("[ZoneAlerts] poll complete -- %d total level(s) (%d NWOG, %d zone/opt); polling %s",
+                  g_levelCount, g_levelCount-nonNwog, nonNwog,
+                  g_loaded ? "HALTED until next UTC day" : "will retry next interval");
   }
 
 //+------------------------------------------------------------------+

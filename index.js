@@ -64,6 +64,14 @@ function getWeekStart() {
   return monday.toISOString().slice(0, 10);
 }
 
+// Only current levels are kept: today's zones/options and this week's NWOG.
+// Older ones are dropped from zones.json whenever zones are written.
+function readCurrentZones() {
+  const today = todayDate();
+  const weekStart = getWeekStart();
+  return readZones().filter((z) => (z.direction === "nwog" ? z.date >= weekStart : z.date === today));
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // Serve GUI
@@ -71,9 +79,9 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// GUI: full zone history
-app.get("/zones/all", (req, res) => {
-  res.json(readZones());
+// GUI: current zones
+app.get("/zones", (req, res) => {
+  res.json(readCurrentZones());
 });
 
 // EA: fetch a single zone by ID
@@ -130,7 +138,7 @@ app.post("/zones", (req, res) => {
     if (from == null || to == null) return res.status(400).json({ error: "from and to required for nwog" });
     const sym = symbol.toUpperCase();
     // Replace any existing NWOG for this symbol
-    const existing = readZones().filter((z) => !(z.symbol === sym && z.direction === "nwog"));
+    const existing = readCurrentZones().filter((z) => !(z.symbol === sym && z.direction === "nwog"));
     const zone = {
       id: uuidv4(),
       symbol: sym,
@@ -169,7 +177,7 @@ app.post("/zones", (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-  const zones = readZones();
+  const zones = readCurrentZones();
   zones.push(zone);
   writeZones(zones);
   res.status(201).json(zone);
@@ -178,7 +186,7 @@ app.post("/zones", (req, res) => {
 // GUI: clear all zones for a symbol
 app.delete("/zones/:symbol", (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
-  const zones = readZones();
+  const zones = readCurrentZones();
   const filtered = zones.filter((z) => z.symbol !== symbol);
   writeZones(filtered);
   res.json({ cleared: symbol, removed: zones.length - filtered.length });

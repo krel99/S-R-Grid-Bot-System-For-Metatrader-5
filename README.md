@@ -5,9 +5,13 @@ A two-part system for placing automated limit orders at manually defined support
 ## How It Works
 
 ### Zone Server (Node.js)
-A local Express server that stores and serves S/R zone data. It exposes a simple REST API that the MT5 Expert Advisor polls on a schedule. A built-in web GUI lets you define zones per symbol — specifying direction (buy/sell), strength (strong/regular), and whether the zone is a single price point or a price range.
+A local Express server that stores and serves S/R zone data. It exposes a simple REST API that MT5 Expert Advisors poll on a schedule (currently ZoneAlerts, which lives in the Web-Manager-For-Multiple-Metatrader-5-Instances repo). A built-in web GUI lets you define zones per symbol — specifying direction (buy/sell), strength (strong/regular), and whether the zone is a single price point or a price range.
+
+Only current levels are kept: today's zones and options, and this week's NWOG. Older levels are not shown and are deleted from `zones.json` whenever zones are added or cleared.
 
 ### ZoneRaider EA (MetaTrader 5)
+Not deployed: all EAs in this repo (zoneRaider, optionsRaider, alerter) are kept in `UNUSED/`.
+
 An Expert Advisor that runs on a chart in MT5 and periodically fetches active zones from the local server. For each zone, it calculates an entry price and places a limit order. Position sizing is ATR-based, and the EA enforces a configurable daily risk budget and maximum number of simultaneous positions. All orders are automatically closed and the session is reset at a configurable end-of-day hour.
 
 ## Key Features
@@ -19,3 +23,4 @@ An Expert Advisor that runs on a chart in MT5 and periodically fetches active zo
 - Configurable NY session open and end-of-day close times
 - Weekend polling suppression
 - Zones are cleared server-side after market hours
+- No level history: only current levels are stored

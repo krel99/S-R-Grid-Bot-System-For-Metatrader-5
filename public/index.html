@@ -461,7 +461,7 @@
                 font-weight: 600;
             }
 
-            /* ── Zone log ── */
+            /* ── Current zones ── */
             .zones-panel {
                 margin-top: 36px;
                 border-top: 2px solid var(--border);
@@ -490,10 +490,6 @@
                 background: var(--surface);
                 box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
                 animation: fadeIn 0.2s ease;
-            }
-            .zone-item.expired {
-                opacity: 0.38;
-                filter: saturate(0.15);
             }
             .zone-item.is-opt {
                 border-left: 3px solid var(--border2);
@@ -592,15 +588,6 @@
                 font-size: 10px;
                 flex-shrink: 0;
             }
-            .expired-tag {
-                font-size: 9px;
-                letter-spacing: 0.1em;
-                color: var(--muted);
-                border: 1px solid var(--border2);
-                padding: 1px 5px;
-                text-transform: uppercase;
-                flex-shrink: 0;
-            }
             .empty-state {
                 color: var(--muted);
                 font-size: 12px;
@@ -659,9 +646,9 @@
         <!-- Symbol blocks (single column) -->
         <div id="symbolBlocks"></div>
 
-        <!-- Zone log -->
+        <!-- Current zones -->
         <div class="zones-panel">
-            <h2>Zone Log</h2>
+            <h2>Current Zones</h2>
             <div class="zones-list" id="zonesList"></div>
         </div>
 
@@ -675,10 +662,6 @@
             const EVENT_COLS = 3;
 
             let eventCount = EVENT_COLS;
-
-            function todayStr() {
-                return new Date().toISOString().slice(0, 10);
-            }
 
             // ── Events ──────────────────────────────────────────────────────────────────
 
@@ -929,25 +912,15 @@
                 }
             }
 
-            // ── Zone log ─────────────────────────────────────────────────────────────────
-
-            function getWeekStart() {
-                const d = new Date();
-                const day = d.getUTCDay(); // 0=Sun
-                const diff = day === 0 ? -6 : 1 - day;
-                const monday = new Date(d);
-                monday.setUTCDate(d.getUTCDate() + diff);
-                return monday.toISOString().slice(0, 10);
-            }
+            // ── Current zones ────────────────────────────────────────────────────────────
+            // The server only returns today's zones/options and this week's NWOG.
 
             async function loadZones() {
                 const list = document.getElementById("zonesList");
-                const today = todayStr();
-                const weekStart = getWeekStart();
                 try {
-                    const zones = await (await fetch("/zones/all")).json();
+                    const zones = await (await fetch("/zones")).json();
                     if (!zones.length) {
-                        list.innerHTML = '<div class="empty-state">no zones recorded</div>';
+                        list.innerHTML = '<div class="empty-state">no current zones</div>';
                         return;
                     }
                     zones.sort((a, b) => {
@@ -958,24 +931,20 @@
                         .map((z) => {
                             const isNwog = z.direction === "nwog";
                             const isOpt = z.direction === "above" || z.direction === "below";
-                            const expired = isNwog ? z.date < weekStart : z.date !== today;
                             const priceStr = z.kind === "zone" ? `${z.from} — ${z.to}` : `${z.price}`;
-                            const dateLabel = expired
-                                ? z.date
-                                : new Date(z.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+                            const dateLabel = new Date(z.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
                             if (isNwog) {
                                 return `
-            <div class="zone-item is-nwog${expired ? " expired" : ""}">
+            <div class="zone-item is-nwog">
               <span class="z-sym">${z.symbol}</span>
               <span class="z-nwog-tag">NWOG</span>
               <span class="z-price">${priceStr}</span>
               <span class="z-date">${dateLabel}</span>
-              ${expired ? '<span class="expired-tag">PREV WEEK</span>' : ""}
             </div>`;
                             } else if (isOpt) {
                                 return `
-            <div class="zone-item is-opt${expired ? " expired" : ""}">
+            <div class="zone-item is-opt">
               <span class="z-sym">${z.symbol}</span>
               <span class="z-dir ${z.direction}">${z.direction.toUpperCase()}</span>
               <span class="z-opt-tag">OPT</span>
@@ -983,18 +952,16 @@
               ${z.time ? `<span class="z-etime">${z.time}</span>` : ""}
               <span class="z-price">${priceStr}</span>
               <span class="z-date">${dateLabel}</span>
-              ${expired ? '<span class="expired-tag">EXPIRED</span>' : ""}
             </div>`;
                             } else {
                                 return `
-            <div class="zone-item${expired ? " expired" : ""}">
+            <div class="zone-item">
               <span class="z-sym">${z.symbol}</span>
               <span class="z-dir ${z.direction}">${z.direction.toUpperCase()}</span>
               <span class="z-str ${z.strength}">${z.strength.toUpperCase()}</span>
               ${z.watchedOnly ? '<span class="z-watched">W.ONLY</span>' : ""}
               <span class="z-price">${priceStr}</span>
               <span class="z-date">${dateLabel}</span>
-              ${expired ? '<span class="expired-tag">EXPIRED</span>' : ""}
             </div>`;
                             }
                         })
